@@ -50,7 +50,7 @@ void SDL_SaveImage(screen *s, const char* filename)
 		<< SDL_GetError() << std::endl;
       exit(1);
     }
-  
+
 }
 
 void KillSDL(screen* s)
@@ -78,19 +78,19 @@ screen* InitializeSDL(int width,int height, bool fullscreen)
 		<< SDL_GetError() << std::endl;
       exit(1);
     }
-  
+
   screen *s = new screen;
   s->width = width;
   s->height = height;
   s->buffer = new uint32_t[width*height];
   memset(s->buffer, 0, width*height*sizeof(uint32_t));
-  
+
   uint32_t flags = SDL_WINDOW_OPENGL;
   if(fullscreen)
     {
       flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     }
-  s->window = SDL_CreateWindow("COMS30115",
+  s->window = SDL_CreateWindow("Starscreen",
 				      SDL_WINDOWPOS_UNDEFINED,
 				      SDL_WINDOWPOS_UNDEFINED,
 				      width, height,flags);
@@ -122,7 +122,7 @@ screen* InitializeSDL(int width,int height, bool fullscreen)
 	     << SDL_GetError() << std::endl;
       exit(1);
     }
-  
+
   return s;
 }
 

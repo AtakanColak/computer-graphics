@@ -68,26 +68,49 @@ int main( int argc, char* argv[] ) {
 /*Place your drawing here*/
 void Draw(screen* screen){
   /* Clear buffer */
-  memset(screen->buffer, 0, screen->height*screen->width*sizeof(uint32_t));
+  //memset(screen->buffer, 0, screen->height*screen->width*sizeof(uint32_t));
+
+  for (int i = 0; i < SCREEN_HEIGHT; ++i) {
+    for (int j = 0; j < SCREEN_WIDTH; ++j) {
+      uint32_t rgb = screen->buffer[i * SCREEN_WIDTH + j];
+      uint32_t alpha = rgb & 0xFF000000;
+      uint32_t red = (rgb >> 16) & 0xFF;
+      uint32_t green = (rgb >> 8) & 0xFF;
+      uint32_t blue = rgb & 0xFF;
+      red *= 0.8;
+      green *= 0.8;
+      blue *= 0.8;
+      screen->buffer[i * SCREEN_WIDTH + j] = alpha + (red << 16) + (green << 8) + blue;
+    }
+  }
 
   vec3 white(1.0, 1.0, 1.0);
 
   for (size_t s = 0; s < stars.size(); ++s) {
     float u = FOCAL_LENGTH * (stars[s].x / stars[s].z) + (SCREEN_WIDTH / 2);
     float v = FOCAL_LENGTH * (stars[s].y / stars[s].z) + (SCREEN_HEIGHT / 2);
-    PutPixelSDL(screen, u, v, white);
+    vec3 color = (0.2f * white) / (stars[s].z * stars[s].z);
+    PutPixelSDL(screen, u, v, color);
   }
 }
 
 /*Place updates of parameters here*/
 void Update(){
-  /* Compute frame time */
+  static int t = SDL_GetTicks();
   int t2 = SDL_GetTicks();
   float dt = float(t2-t);
   t = t2;
-  /*Good idea to remove this*/
-  //std::cout << "Render time: " << dt << " ms." << std::endl;
+
+  static float v = 0.001;
+
   /* Update variables*/
+  for (size_t s = 0; s < stars.size(); ++s) {
+    stars[s].z -= v * dt;
+    if (stars[s].z <= 0)
+      stars[s].z += 1;
+    if (stars[s].z > 1)
+      stars[s].z -= 1;
+  }
 }
 
 void Interpolate(float a, float b, vector<float>& result) {
