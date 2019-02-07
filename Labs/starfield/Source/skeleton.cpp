@@ -27,13 +27,12 @@ void Interpolate(float a, float b, vector<float>& result);
 void Interpolate(vec3 a, vec3 b, vector<vec3>& result);
 void Test_Interpolate();
 
-int main( int argc, char* argv[] )
-{
-  
+int main( int argc, char* argv[] ) {
+
   screen *screen = InitializeSDL( SCREEN_WIDTH, SCREEN_HEIGHT, FULLSCREEN_MODE );
   t = SDL_GetTicks();	/*Set start value for timer.*/
-  
-  Test_Interpolate();
+
+  //Test_Interpolate();
 
   while( NoQuitMessageSDL() )
     {
@@ -49,23 +48,31 @@ int main( int argc, char* argv[] )
 }
 
 /*Place your drawing here*/
-void Draw(screen* screen)
-{
+void Draw(screen* screen){
   /* Clear buffer */
   memset(screen->buffer, 0, screen->height*screen->width*sizeof(uint32_t));
-  
-  vec3 colour(1.0,0.0,0.0);
-  for(int i=0; i<1000; i++)
+
+  vec3 topLeft(1,0,0);    // red
+  vec3 topRight(0,0,1);   // blue
+  vec3 bottomRight(0,1,0);// green
+  vec3 bottomLeft(1,1,0); // yellow
+
+  vector<vec3> leftSide( SCREEN_HEIGHT );
+  vector<vec3> rightSide( SCREEN_HEIGHT );
+  Interpolate(topLeft, bottomLeft, leftSide);
+  Interpolate(topRight, bottomRight, rightSide);
+
+  for(int i=0; i < SCREEN_HEIGHT; i++)
     {
-      uint32_t x = rand() % screen->width;
-      uint32_t y = rand() % screen->height;
-      PutPixelSDL(screen, x, y, colour);
+      vector<vec3> line ( SCREEN_WIDTH );
+      Interpolate(leftSide[i], rightSide[i], line);
+      for (int j = 0; j < SCREEN_WIDTH; ++j)
+        PutPixelSDL(screen, j, i, line[j]);
     }
 }
 
 /*Place updates of parameters here*/
-void Update()
-{
+void Update(){
   /* Compute frame time */
   int t2 = SDL_GetTicks();
   float dt = float(t2-t);
