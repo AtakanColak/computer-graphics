@@ -11,12 +11,15 @@ using glm::mat3;
 
 #define SCREEN_WIDTH 320
 #define SCREEN_HEIGHT 256
+#define FOCAL_LENGTH (SCREEN_HEIGHT / 2)
 #define FULLSCREEN_MODE false
 
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 int t;
+vector<vec3> stars(1000);
+
 
 /* ----------------------------------------------------------------------------*/
 /* FUNCTIONS                                                                   */
@@ -33,6 +36,21 @@ int main( int argc, char* argv[] ) {
   t = SDL_GetTicks();	/*Set start value for timer.*/
 
   //Test_Interpolate();
+
+
+
+  for(int i = 0; i < 1000; ++i) {
+    float val_x = float(rand()) / float(RAND_MAX);
+    float val_y = float(rand()) / float(RAND_MAX);
+    float val_z = float(rand()) / float(RAND_MAX);
+    bool sign_x = (float(rand()) / float(RAND_MAX)) >= 0.5;
+    bool sign_y = (float(rand()) / float(RAND_MAX)) >= 0.5;
+    val_x *= (sign_x * -2) + 1;
+    val_y *= (sign_y * -2) + 1;
+    stars[i].x = val_x;
+    stars[i].y = val_y;
+    stars[i].z = val_z;
+  }
 
   while( NoQuitMessageSDL() )
     {
@@ -52,23 +70,13 @@ void Draw(screen* screen){
   /* Clear buffer */
   memset(screen->buffer, 0, screen->height*screen->width*sizeof(uint32_t));
 
-  vec3 topLeft(1,0,0);    // red
-  vec3 topRight(0,0,1);   // blue
-  vec3 bottomRight(0,1,0);// green
-  vec3 bottomLeft(1,1,0); // yellow
+  vec3 white(1.0, 1.0, 1.0);
 
-  vector<vec3> leftSide( SCREEN_HEIGHT );
-  vector<vec3> rightSide( SCREEN_HEIGHT );
-  Interpolate(topLeft, bottomLeft, leftSide);
-  Interpolate(topRight, bottomRight, rightSide);
-
-  for(int i=0; i < SCREEN_HEIGHT; i++)
-    {
-      vector<vec3> line ( SCREEN_WIDTH );
-      Interpolate(leftSide[i], rightSide[i], line);
-      for (int j = 0; j < SCREEN_WIDTH; ++j)
-        PutPixelSDL(screen, j, i, line[j]);
-    }
+  for (size_t s = 0; s < stars.size(); ++s) {
+    float u = FOCAL_LENGTH * (stars[s].x / stars[s].z) + (SCREEN_WIDTH / 2);
+    float v = FOCAL_LENGTH * (stars[s].y / stars[s].z) + (SCREEN_HEIGHT / 2);
+    PutPixelSDL(screen, u, v, white);
+  }
 }
 
 /*Place updates of parameters here*/
@@ -129,3 +137,28 @@ void Test_Interpolate() {
     std::cout << "( " << result2[i].x << ", " << result2[i].y << ", " << result2[i].z << " ) ";
   }
 }
+
+//Drawing the light spectrum.
+
+// void Draw(screen* screen){
+//   /* Clear buffer */
+//   memset(screen->buffer, 0, screen->height*screen->width*sizeof(uint32_t));
+//
+//   vec3 topLeft(1,0,0);    // red
+//   vec3 topRight(0,0,1);   // blue
+//   vec3 bottomRight(0,1,0);// green
+//   vec3 bottomLeft(1,1,0); // yellow
+//
+//   vector<vec3> leftSide( SCREEN_HEIGHT );
+//   vector<vec3> rightSide( SCREEN_HEIGHT );
+//   Interpolate(topLeft, bottomLeft, leftSide);
+//   Interpolate(topRight, bottomRight, rightSide);
+//
+//   for(int i=0; i < SCREEN_HEIGHT; i++)
+//     {
+//       vector<vec3> line ( SCREEN_WIDTH );
+//       Interpolate(leftSide[i], rightSide[i], line);
+//       for (int j = 0; j < SCREEN_WIDTH; ++j)
+//         PutPixelSDL(screen, j, i, line[j]);
+//     }
+// }
