@@ -1,5 +1,5 @@
 FILE=skeleton
-
+GLMDIR=../glm
 ########
 #   Directories
 S_DIR=Source
