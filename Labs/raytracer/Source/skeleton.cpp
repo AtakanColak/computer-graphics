@@ -18,6 +18,9 @@ using glm::vec4;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 float focal_length = SCREEN_HEIGHT;
+float yaw = 0;
+float xaw;
+mat4 R;
 vec3 white(0, 0, 0);
 vec4 cameraPos(0, 0, -3, 1.0);
 vector<Triangle> triangles;
@@ -37,11 +40,23 @@ struct Intersection
 bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
+void RotateMatrixUpdate() {
+
+}
+void Rotate(int hor, int ver) {
+  if (hor != 0) {
+    yaw += hor;
+  } 
+  RotateMatrixUpdate(); 
+}
+
+
 
 int main(int argc, char *argv[])
 {
 
   screen *screen = InitializeSDL(SCREEN_WIDTH, SCREEN_HEIGHT, FULLSCREEN_MODE);
+
 
   LoadTestModel(triangles);
 
@@ -111,6 +126,18 @@ bool Update()
         break;
       case SDLK_RIGHT:
         cameraPos.x += 0.1;
+        break;
+      case SDLK_w:
+        Rotate(0, 1);
+        break;
+      case SDLK_s:
+        Rotate(0, -1);
+        break;
+      case SDLK_a:
+        Rotate(-1, 0);
+        break;
+      case SDLK_d:
+        Rotate(1, 0);
         break;
       case SDLK_ESCAPE:
         /* Move camera quit */
