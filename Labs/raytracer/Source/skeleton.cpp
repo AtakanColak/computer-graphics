@@ -18,13 +18,12 @@ using glm::vec4;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 float focal_length = SCREEN_HEIGHT;
-float yaw = 0;
-float xaw;
-mat4 R;
+float theta_x = 0, theta_y = 0, theta_z = 0;
 vec3 white(0, 0, 0);
 vec4 cameraPos(0, 0, -3, 1.0);
-vector<Triangle> triangles;
 
+vector<Triangle> triangles;
+mat4 R;
 /* ----------------------------------------------------------------------------*/
 /* DEFINITIONS                                                                 */
 struct Intersection
@@ -40,10 +39,7 @@ struct Intersection
 bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
-
-
-
-
+void LoadRotationVector();
 
 int main(int argc, char *argv[])
 {
@@ -151,17 +147,18 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   {
     Triangle t = triangles[i];
     vec4 v0 = t.v0;
-    vec4 v1 = t.v1;
-    vec4 v2 = t.v2;
+    //vec4 v1 = t.v1;
+    //vec4 v2 = t.v2;
 
-    vec3 e1 = vec3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
-    vec3 e2 = vec3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
+    //Already is computed within the triangle class
+    //vec3 e1 = vec3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
+    //vec3 e2 = vec3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
 
     vec3 b = vec3(start.x - v0.x, start.y - v0.y, start.z - v0.z);
 
     vec3 d(dir.x, dir.y, dir.z);
 
-    mat3 A(-d, e1, e2);
+    mat3 A(-d, t.e1, t.e2);
 
     vec3 x = glm::inverse(A) * b;
 
@@ -181,4 +178,18 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
     return false;
 
   return true;
+}
+
+void LoadRotationVector() {
+  R[0][0] = cos(theta_y) * cos(theta_z);
+  R[0][1] = -1 * cos(theta_x) * sin(theta_z) + (sin(theta_x)*sin(theta_y)*cos(theta_z));
+  R[0][2] = sin(theta_x) * sin(theta_z) + cos(theta_x) * sin(theta_y) * cos(theta_z);
+
+  R[1][0] = cos(theta_y) * sin(theta_z);
+  R[1][1] = cos(theta_x) * cos(theta_z) + sin(theta_x)*sin(theta_y)*sin(theta_z);
+  R[1][2] = -1 * sin(theta_x) * cos(theta_z) + cos(theta_x) * sin(theta_y) * sin(theta_z);
+
+  R[2][0] = -1 * sin(theta_y);
+  R[2][1] = sin(theta_x) * cos(theta_y);
+  R[2][2] = cos(theta_x) * cos(theta_y);
 }
