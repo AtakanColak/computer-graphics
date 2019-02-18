@@ -40,15 +40,8 @@ struct Intersection
 bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
-void RotateMatrixUpdate() {
 
-}
-void Rotate(int hor, int ver) {
-  if (hor != 0) {
-    yaw += hor;
-  } 
-  RotateMatrixUpdate(); 
-}
+
 
 
 
@@ -128,16 +121,16 @@ bool Update()
         cameraPos.x += 0.1;
         break;
       case SDLK_w:
-        Rotate(0, 1);
+        //Rotate(0, 1);
         break;
       case SDLK_s:
-        Rotate(0, -1);
+        //Rotate(0, -1);
         break;
       case SDLK_a:
-        Rotate(-1, 0);
+        //Rotate(-1, 0);
         break;
       case SDLK_d:
-        Rotate(1, 0);
+        //Rotate(1, 0);
         break;
       case SDLK_ESCAPE:
         /* Move camera quit */
