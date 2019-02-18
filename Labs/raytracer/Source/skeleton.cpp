@@ -39,7 +39,7 @@ struct Intersection
 bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
-void LoadRotationVector();
+void LoadRotationMatrix();
 
 int main(int argc, char *argv[])
 {
@@ -48,6 +48,7 @@ int main(int argc, char *argv[])
 
 
   LoadTestModel(triangles);
+  LoadRotationMatrix();
 
   while (Update())
   {
@@ -71,7 +72,12 @@ void Draw(screen *screen)
   {
     for (int x = 0; x < SCREEN_WIDTH; ++x)
     {
+      vec4 d_right    ( R[0][0], R[0][1], R[0][2], 1);
+      vec4 d_down     ( R[1][0], R[1][1], R[1][2], 1);
+      vec4 d_forward  ( R[2][0], R[2][1], R[2][2], 1);
+
       vec4 dir = vec4(x - (SCREEN_WIDTH / 2), y - (SCREEN_HEIGHT / 2), focal_length, 1);
+      
       Intersection closest;
       vec3 colour(0.0, 0.0, 0.0);
       if (ClosestIntersection(cameraPos, dir, triangles, closest))
@@ -123,10 +129,12 @@ bool Update()
         //Rotate(0, -1);
         break;
       case SDLK_a:
-        //Rotate(-1, 0);
+        theta_y -= 0.01;
+        LoadRotationMatrix();
         break;
       case SDLK_d:
-        //Rotate(1, 0);
+        theta_y += 0.01;
+        LoadRotationMatrix();
         break;
       case SDLK_ESCAPE:
         /* Move camera quit */
@@ -180,7 +188,7 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   return true;
 }
 
-void LoadRotationVector() {
+void LoadRotationMatrix() {
   R[0][0] = cos(theta_y) * cos(theta_z);
   R[0][1] = -1 * cos(theta_x) * sin(theta_z) + (sin(theta_x)*sin(theta_y)*cos(theta_z));
   R[0][2] = sin(theta_x) * sin(theta_z) + cos(theta_x) * sin(theta_y) * cos(theta_z);
