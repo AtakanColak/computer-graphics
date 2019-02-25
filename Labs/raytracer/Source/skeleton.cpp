@@ -11,8 +11,8 @@ using glm::mat4;
 using glm::vec3;
 using glm::vec4;
 
-#define SCREEN_WIDTH 100
-#define SCREEN_HEIGHT 100
+#define SCREEN_WIDTH 300
+#define SCREEN_HEIGHT 300
 #define FULLSCREEN_MODE true
 
 /* ----------------------------------------------------------------------------*/
@@ -21,6 +21,9 @@ float focal_length = SCREEN_HEIGHT;
 float theta_x = 0.0, theta_y = 0.0, theta_z = 0.0;
 vec3 white(0, 0, 0);
 vec4 cameraPos(0, 0, -3, 1.0);
+
+vec4 lightPos(0, -0.5, -0.7, 1.0);
+vec3 lightColor = 14.f * vec3(1, 1, 1);
 
 vector<Triangle> triangles;
 mat4 R;
@@ -45,7 +48,6 @@ int main(int argc, char *argv[])
 {
 
   screen *screen = InitializeSDL(SCREEN_WIDTH, SCREEN_HEIGHT, FULLSCREEN_MODE);
-
 
   LoadTestModel(triangles);
   LoadRotationMatrix();
@@ -77,7 +79,7 @@ void Draw(screen *screen)
       // vec4 d_forward  ( R[2][0], R[2][1], R[2][2], 1);
 
       vec4 dir = vec4(x - (SCREEN_WIDTH / 2), y - (SCREEN_HEIGHT / 2), focal_length, 1);
-      
+
       dir = R * dir;
 
       Intersection closest;
@@ -110,19 +112,26 @@ bool Update()
     else if (e.type == SDL_KEYDOWN)
     {
       int key_code = e.key.keysym.sym;
+      vec4 zetward(0,0,0.1,1);
+      vec4 xerward(0.1,0,0,1);
       switch (key_code)
       {
       case SDLK_UP:
-        cameraPos.z += 0.1;
+        
+        zetward = R * zetward;
+        cameraPos += zetward;
         break;
       case SDLK_DOWN:
-        cameraPos.z -= 0.1;
+        zetward = R * zetward;
+        cameraPos -= zetward;
         break;
       case SDLK_LEFT:
-        cameraPos.x -= 0.1;
+        xerward = R * xerward;
+        cameraPos -= xerward;
         break;
       case SDLK_RIGHT:
-        cameraPos.x += 0.1;
+       xerward = R * xerward;
+        cameraPos += xerward;
         break;
       case SDLK_w:
         theta_x -= 0.05;
@@ -192,20 +201,20 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   return true;
 }
 
-void LoadRotationMatrix() {
+void LoadRotationMatrix()
+{
   R[0][0] = cos(theta_y) * cos(theta_z);
-  R[0][1] = -1 * cos(theta_x) * sin(theta_z) + (sin(theta_x)*sin(theta_y)*cos(theta_z));
+  R[0][1] = -1 * cos(theta_x) * sin(theta_z) + (sin(theta_x) * sin(theta_y) * cos(theta_z));
   R[0][2] = sin(theta_x) * sin(theta_z) + cos(theta_x) * sin(theta_y) * cos(theta_z);
 
   R[1][0] = cos(theta_y) * sin(theta_z);
-  R[1][1] = cos(theta_x) * cos(theta_z) + sin(theta_x)*sin(theta_y)*sin(theta_z);
+  R[1][1] = cos(theta_x) * cos(theta_z) + sin(theta_x) * sin(theta_y) * sin(theta_z);
   R[1][2] = -1 * sin(theta_x) * cos(theta_z) + cos(theta_x) * sin(theta_y) * sin(theta_z);
 
   R[2][0] = -1 * sin(theta_y);
   R[2][1] = sin(theta_x) * cos(theta_y);
   R[2][2] = cos(theta_x) * cos(theta_y);
 
-  
   R[3][0] = 0;
   R[3][1] = 0;
   R[3][2] = 0;
