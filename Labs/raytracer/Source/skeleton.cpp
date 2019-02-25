@@ -18,7 +18,7 @@ using glm::vec4;
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
 float focal_length = SCREEN_HEIGHT;
-float theta_x = 0, theta_y = 0, theta_z = 0;
+float theta_x = 0.0, theta_y = 0.0, theta_z = 0.0;
 vec3 white(0, 0, 0);
 vec4 cameraPos(0, 0, -3, 1.0);
 
@@ -72,12 +72,14 @@ void Draw(screen *screen)
   {
     for (int x = 0; x < SCREEN_WIDTH; ++x)
     {
-      vec4 d_right    ( R[0][0], R[0][1], R[0][2], 1);
-      vec4 d_down     ( R[1][0], R[1][1], R[1][2], 1);
-      vec4 d_forward  ( R[2][0], R[2][1], R[2][2], 1);
+      // vec4 d_right    ( R[0][0], R[0][1], R[0][2], 1);
+      // vec4 d_down     ( R[1][0], R[1][1], R[1][2], 1);
+      // vec4 d_forward  ( R[2][0], R[2][1], R[2][2], 1);
 
       vec4 dir = vec4(x - (SCREEN_WIDTH / 2), y - (SCREEN_HEIGHT / 2), focal_length, 1);
       
+      dir = R * dir;
+
       Intersection closest;
       vec3 colour(0.0, 0.0, 0.0);
       if (ClosestIntersection(cameraPos, dir, triangles, closest))
@@ -123,17 +125,19 @@ bool Update()
         cameraPos.x += 0.1;
         break;
       case SDLK_w:
-        //Rotate(0, 1);
+        theta_x -= 0.05;
+        LoadRotationMatrix();
         break;
       case SDLK_s:
-        //Rotate(0, -1);
+        theta_x += 0.05;
+        LoadRotationMatrix();
         break;
       case SDLK_a:
-        theta_y -= 0.01;
+        theta_y += 0.05;
         LoadRotationMatrix();
         break;
       case SDLK_d:
-        theta_y += 0.01;
+        theta_y -= 0.05;
         LoadRotationMatrix();
         break;
       case SDLK_ESCAPE:
@@ -200,4 +204,14 @@ void LoadRotationMatrix() {
   R[2][0] = -1 * sin(theta_y);
   R[2][1] = sin(theta_x) * cos(theta_y);
   R[2][2] = cos(theta_x) * cos(theta_y);
+
+  
+  R[3][0] = 0;
+  R[3][1] = 0;
+  R[3][2] = 0;
+
+  R[0][3] = 1;
+  R[1][3] = 1;
+  R[2][3] = 1;
+  R[3][3] = 1;
 }
