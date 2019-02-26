@@ -11,8 +11,8 @@ using glm::mat4;
 using glm::vec3;
 using glm::vec4;
 
-#define SCREEN_WIDTH 300
-#define SCREEN_HEIGHT 300
+#define SCREEN_WIDTH 150
+#define SCREEN_HEIGHT 150
 #define FULLSCREEN_MODE true
 
 /* ----------------------------------------------------------------------------*/
@@ -24,6 +24,9 @@ vec4 cameraPos(0, 0, -3, 1.0);
 
 vec4 lightPos(0, -0.5, -0.7, 1.0);
 vec3 lightColor = 14.f * vec3(1, 1, 1);
+
+vec4 zetward(0, 0, 0.1, 1);
+vec4 xerward(0.1, 0, 0, 1);
 
 vector<Triangle> triangles;
 mat4 R;
@@ -43,6 +46,8 @@ bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
 void LoadRotationMatrix();
+vec3 DirectLight(const Intersection& i);
+
 
 int main(int argc, char *argv[])
 {
@@ -74,10 +79,6 @@ void Draw(screen *screen)
   {
     for (int x = 0; x < SCREEN_WIDTH; ++x)
     {
-      // vec4 d_right    ( R[0][0], R[0][1], R[0][2], 1);
-      // vec4 d_down     ( R[1][0], R[1][1], R[1][2], 1);
-      // vec4 d_forward  ( R[2][0], R[2][1], R[2][2], 1);
-
       vec4 dir = vec4(x - (SCREEN_WIDTH / 2), y - (SCREEN_HEIGHT / 2), focal_length, 1);
 
       dir = R * dir;
@@ -86,7 +87,7 @@ void Draw(screen *screen)
       vec3 colour(0.0, 0.0, 0.0);
       if (ClosestIntersection(cameraPos, dir, triangles, closest))
       {
-        colour = triangles[closest.triangleIndex].color;
+        colour = DirectLight(closest) * triangles[closest.triangleIndex].color;
       }
       PutPixelSDL(screen, x, y, colour);
     }
@@ -96,11 +97,11 @@ void Draw(screen *screen)
 /*Place updates of parameters here*/
 bool Update()
 {
-  static int t = SDL_GetTicks();
+  // static int t = SDL_GetTicks();
   /* Compute frame time */
-  int t2 = SDL_GetTicks();
-  float dt = float(t2 - t);
-  t = t2;
+  // int t2 = SDL_GetTicks();
+  // float dt = float(t2 - t);
+  // t = t2;
 
   SDL_Event e;
   while (SDL_PollEvent(&e))
@@ -112,41 +113,35 @@ bool Update()
     else if (e.type == SDL_KEYDOWN)
     {
       int key_code = e.key.keysym.sym;
-      vec4 zetward(0,0,0.1,1);
-      vec4 xerward(0.1,0,0,1);
+
       switch (key_code)
       {
       case SDLK_UP:
-        
-        zetward = R * zetward;
-        cameraPos += zetward;
+        cameraPos += R * zetward;
         break;
       case SDLK_DOWN:
-        zetward = R * zetward;
-        cameraPos -= zetward;
+        cameraPos -= R * zetward;
         break;
       case SDLK_LEFT:
-        xerward = R * xerward;
-        cameraPos -= xerward;
+        cameraPos -= R * xerward;
         break;
       case SDLK_RIGHT:
-       xerward = R * xerward;
-        cameraPos += xerward;
+        cameraPos += R * xerward;
         break;
       case SDLK_w:
-        theta_x -= 0.05;
+        theta_x -= 0.1;
         LoadRotationMatrix();
         break;
       case SDLK_s:
-        theta_x += 0.05;
+        theta_x += 0.1;
         LoadRotationMatrix();
         break;
       case SDLK_a:
-        theta_y += 0.05;
+        theta_y += 0.1;
         LoadRotationMatrix();
         break;
       case SDLK_d:
-        theta_y -= 0.05;
+        theta_y -= 0.1;
         LoadRotationMatrix();
         break;
       case SDLK_ESCAPE:
@@ -164,16 +159,10 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   closest.distance = std::numeric_limits<float>::max();
   closest.triangleIndex = -1;
 
-  for (int i = 0; i < triangles.size(); ++i)
+  for (unsigned int i = 0; i < triangles.size(); ++i)
   {
     Triangle t = triangles[i];
     vec4 v0 = t.v0;
-    //vec4 v1 = t.v1;
-    //vec4 v2 = t.v2;
-
-    //Already is computed within the triangle class
-    //vec3 e1 = vec3(v1.x - v0.x, v1.y - v0.y, v1.z - v0.z);
-    //vec3 e2 = vec3(v2.x - v0.x, v2.y - v0.y, v2.z - v0.z);
 
     vec3 b = vec3(start.x - v0.x, start.y - v0.y, start.z - v0.z);
 
@@ -187,9 +176,9 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
     float u = x.y;
     float v = x.z;
 
-    if (closest.distance > t_dist && u >= 0 && v >= 0 && u + v <= 1)
+    if (t_dist >= 0.0 && closest.distance > t_dist && u >= 0.0 && v >= 0.0 && u + v <= 1)
     {
-      closest.position = vec4(x.x, x.y, x.z, 1);
+      closest.position = start + t_dist * dir;
       closest.distance = t_dist;
       closest.triangleIndex = i;
     }
@@ -199,6 +188,14 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
     return false;
 
   return true;
+}
+
+vec3 DirectLight(const Intersection& i) {
+  vec3 r_v = vec3(lightPos.x - i.position.x, lightPos.y - i.position.y, lightPos.z - i.position.z);
+  float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
+  r_v = glm::normalize(r_v);
+  vec3 n_u = vec3(glm::normalize(triangles[i.triangleIndex].normal));
+  return (lightColor / (4.0f * 3.14f * r * r)) * max(glm::dot(r_v, n_u), 0.0f); 
 }
 
 void LoadRotationMatrix()
