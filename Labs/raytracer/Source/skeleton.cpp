@@ -50,6 +50,26 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
 void LoadRotationMatrix();
 vec3 DirectLight(const Intersection &i);
 
+std::ostream &operator<<(std::ostream &os, vec4 const &v)
+{
+  return os << "(" << v.x << ", " << v.y << ", " << v.z << ", " << v.w
+            << ")";
+}
+
+std::ostream &operator<<(std::ostream &os, vec3 const &v)
+{
+  return os << "(" << v.x << ", " << v.y << ", " << v.z << ")";
+}
+
+std::ostream &operator<<(std::ostream &os, mat4 const &m)
+{
+  glm::mat4 mt = transpose(m);
+  return os << mt[0] << endl
+            << mt[1] << endl
+            << mt[2] << endl
+            << mt[3];
+}
+
 int main(int argc, char *argv[])
 {
 
@@ -175,7 +195,7 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   closest.distance = std::numeric_limits<float>::max();
   closest.triangleIndex = -1;
 
-  dir = vec4(glm::normalize(vec3(dir)), 1.0f);
+  //dir = vec4(glm::normalize(vec3(dir)), 1.0f);
 
   for (unsigned int i = 0; i < triangles.size(); ++i)
   {
@@ -191,10 +211,11 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
     float u = x.y;
     float v = x.z;
 
-    if (t_dist >= 0.0 && closest.distance > t_dist && u >= 0.0 && v >= 0.0 && u + v <= 1)
+    if (t_dist >= 0.0 && closest.distance > (t_dist / length(vec3(dir))) && u >= 0.0 && v >= 0.0 && u + v <= 1)
     {
+      closest.distance = t_dist / length(vec3(dir));
       closest.position = start + t_dist * dir;
-      closest.distance = t_dist;
+      closest.position.w = 1;
       closest.triangleIndex = i;
     }
   }
@@ -209,12 +230,13 @@ vec3 DirectLight(const Intersection &i)
 {
   Intersection closest;
   vec3 r_v = vec3(lightPos - i.position);
-  ClosestIntersection(i.position + 0.001f * triangles[i.triangleIndex].normal, vec4(r_v, 1), triangles, closest);
-  if (length(closest.position - i.position) < length(r_v))
+  if (ClosestIntersection(i.position + 0.001f * triangles[i.triangleIndex].normal, vec4(r_v, 1), triangles, closest) && (length(closest.position - i.position) < length(lightPos - i.position)))
+  {
     return vec3(0, 0, 0);
+  }
   float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
   r_v = glm::normalize(r_v);
-  vec3 n_u = vec3(glm::normalize(triangles[i.triangleIndex].normal));
+  vec3 n_u = glm::normalize(vec3(triangles[i.triangleIndex].normal));
   return (lightColor / (4.0f * 3.14f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u)); //max(glm::dot(r_v, n_u), 0.0f);
 }
 
