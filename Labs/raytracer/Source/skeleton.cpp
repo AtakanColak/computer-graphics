@@ -19,11 +19,13 @@ using glm::vec4;
 /* GLOBAL VARIABLES                                                            */
 float focal_length = SCREEN_HEIGHT;
 float theta_x = 0.0, theta_y = 0.0, theta_z = 0.0;
-vec3 white(0, 0, 0);
+vec3 black(0, 0, 0);
+vec3 white(1, 1, 1);
 vec4 cameraPos(0, 0, -3, 1.0);
 
 vec4 lightPos(0, -0.5, -0.7, 1.0);
-vec3 lightColor = 14.f * vec3(1, 1, 1);
+vec3 lightColor = 14.f * white;
+vec3 indirectLight = 0.5f * white;
 
 vec4 zetward(0, 0, 0.1, 1);
 vec4 xerward(0.1, 0, 0, 1);
@@ -86,7 +88,7 @@ void Draw(screen *screen)
       vec3 colour(0.0, 0.0, 0.0);
       if (ClosestIntersection(cameraPos, dir, triangles, closest))
       {
-        colour = DirectLight(closest) * triangles[closest.triangleIndex].color;
+        colour = (DirectLight(closest) + indirectLight) * triangles[closest.triangleIndex].color;
       }
       PutPixelSDL(screen, x, y, colour);
     }
@@ -155,6 +157,9 @@ bool Update()
       case SDLK_KP_2:
         lightPos.y += 0.1f;
         break;
+      case SDLK_KP_5:
+        lightPos.z -= 0.1f;
+        break;
       case SDLK_ESCAPE:
         /* Move camera quit */
         return false;
@@ -170,14 +175,13 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   closest.distance = std::numeric_limits<float>::max();
   closest.triangleIndex = -1;
 
+  dir = vec4(glm::normalize(vec3(dir)), 1.0f);
+
   for (unsigned int i = 0; i < triangles.size(); ++i)
   {
     Triangle t = triangles[i];
     vec4 v0 = t.v0;
 
-    //vec3 b = vec3(start.x - v0.x, start.y - v0.y, start.z - v0.z);
-
-    //vec3 d(dir.x, dir.y, dir.z);
     vec3 b = vec3(start - v0);
     mat3 A(-vec3(dir), t.e1, t.e2);
 
@@ -203,11 +207,15 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
 
 vec3 DirectLight(const Intersection &i)
 {
-  vec3 r_v = vec3(lightPos-i.position);
+  Intersection closest;
+  vec3 r_v = vec3(lightPos - i.position);
+  ClosestIntersection(i.position + 0.001f * triangles[i.triangleIndex].normal, vec4(r_v, 1), triangles, closest);
+  if (length(closest.position - i.position) < length(r_v))
+    return vec3(0, 0, 0);
   float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
   r_v = glm::normalize(r_v);
   vec3 n_u = vec3(glm::normalize(triangles[i.triangleIndex].normal));
-  return (lightColor / (4.0f * 3.14f * r * r)) * sqrt(glm::dot(r_v, n_u)* glm::dot(r_v, n_u) );//max(glm::dot(r_v, n_u), 0.0f);
+  return (lightColor / (4.0f * 3.14f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u)); //max(glm::dot(r_v, n_u), 0.0f);
 }
 
 void LoadRotationMatrix()
