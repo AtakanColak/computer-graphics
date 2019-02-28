@@ -11,8 +11,8 @@ using glm::mat4;
 using glm::vec3;
 using glm::vec4;
 
-#define SCREEN_WIDTH 150
-#define SCREEN_HEIGHT 150
+#define SCREEN_WIDTH 500
+#define SCREEN_HEIGHT 500
 #define FULLSCREEN_MODE true
 
 /* ----------------------------------------------------------------------------*/
@@ -46,8 +46,7 @@ bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
 void LoadRotationMatrix();
-vec3 DirectLight(const Intersection& i);
-
+vec3 DirectLight(const Intersection &i);
 
 int main(int argc, char *argv[])
 {
@@ -129,20 +128,32 @@ bool Update()
         cameraPos += R * xerward;
         break;
       case SDLK_w:
-        theta_x -= 0.1;
+        theta_x -= 0.1f;
         LoadRotationMatrix();
         break;
       case SDLK_s:
-        theta_x += 0.1;
+        theta_x += 0.1f;
         LoadRotationMatrix();
         break;
       case SDLK_a:
-        theta_y += 0.1;
+        theta_y += 0.1f;
         LoadRotationMatrix();
         break;
       case SDLK_d:
-        theta_y -= 0.1;
+        theta_y -= 0.1f;
         LoadRotationMatrix();
+        break;
+      case SDLK_KP_4:
+        lightPos.x -= 0.1f;
+        break;
+      case SDLK_KP_6:
+        lightPos.x += 0.1f;
+        break;
+      case SDLK_KP_8:
+        lightPos.y -= 0.1f;
+        break;
+      case SDLK_KP_2:
+        lightPos.y += 0.1f;
         break;
       case SDLK_ESCAPE:
         /* Move camera quit */
@@ -164,11 +175,11 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
     Triangle t = triangles[i];
     vec4 v0 = t.v0;
 
-    vec3 b = vec3(start.x - v0.x, start.y - v0.y, start.z - v0.z);
+    //vec3 b = vec3(start.x - v0.x, start.y - v0.y, start.z - v0.z);
 
-    vec3 d(dir.x, dir.y, dir.z);
-
-    mat3 A(-d, t.e1, t.e2);
+    //vec3 d(dir.x, dir.y, dir.z);
+    vec3 b = vec3(start - v0);
+    mat3 A(-vec3(dir), t.e1, t.e2);
 
     vec3 x = glm::inverse(A) * b;
 
@@ -190,12 +201,13 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   return true;
 }
 
-vec3 DirectLight(const Intersection& i) {
-  vec3 r_v = vec3(lightPos.x - i.position.x, lightPos.y - i.position.y, lightPos.z - i.position.z);
+vec3 DirectLight(const Intersection &i)
+{
+  vec3 r_v = vec3(lightPos-i.position);
   float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
   r_v = glm::normalize(r_v);
   vec3 n_u = vec3(glm::normalize(triangles[i.triangleIndex].normal));
-  return (lightColor / (4.0f * 3.14f * r * r)) * max(glm::dot(r_v, n_u), 0.0f); 
+  return (lightColor / (4.0f * 3.14f * r * r)) * sqrt(glm::dot(r_v, n_u)* glm::dot(r_v, n_u) );//max(glm::dot(r_v, n_u), 0.0f);
 }
 
 void LoadRotationMatrix()
