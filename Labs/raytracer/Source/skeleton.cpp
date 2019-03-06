@@ -1,10 +1,11 @@
+#include <stdint.h>
 #include <iostream>
+#include <tbb/tbb.h>
+#include <chrono>
 #include <glm/glm.hpp>
 #include <SDL.h>
 #include "SDLauxiliary.h"
 #include "TestModelH.h"
-#include <stdint.h>
-#include <tbb/tbb.h>
 
 using namespace std;
 using glm::mat3;
@@ -31,8 +32,15 @@ using glm::vec4;
 //03.41% in DirectLight
 //02.27% in Draw
 
+//CHANGES
+//STAGE 1 AUTO for triangles, shortened code, ternary at the end ~ 805 milliseconds
+//STAGE 2 parallel_for
+//STAGE 2 TRIAL 1: PARALLELIZED Y ~ 210 milliseconds --SUCCESSFUL
+//STAGE 2 TRIAL 2: PARALLELIZED X ~ 220 milliseconds --UNSUCCESSFUL
+
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
+bool changed = true;
 float focal_length = SCREEN_HEIGHT;
 float theta_x = 0.0, theta_y = 0.0, theta_z = 0.0;
 vec3 black(0, 0, 0);
@@ -50,12 +58,8 @@ vector<Triangle> triangles;
 mat4 R;
 /* ----------------------------------------------------------------------------*/
 /* DEFINITIONS                                                                 */
-// struct Intersection
-// {
-//   vec4 position;
-//   float distance;
-//   int triangleIndex;
-// };
+
+typedef std::chrono::high_resolution_clock Clock;
 
 class Intersection
 {
@@ -118,8 +122,16 @@ int main(int argc, char *argv[])
 
   while (Update())
   {
+    if (!changed)
+      continue;
+    auto t1 = Clock::now();
     Draw(screen);
+    auto t2 = Clock::now();
+    std::cout << "Delta t2-t1: "
+              << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
+              << " milliseconds" << std::endl;
     SDL_Renderframe(screen);
+    changed = false;
   }
 
   SDL_SaveImage(screen, "screenshot.bmp");
@@ -134,23 +146,23 @@ void Draw(screen *screen)
   /* Clear buffer */
   memset(screen->buffer, 0, screen->height * screen->width * sizeof(uint32_t));
 
-  for (int y = 0; y < SCREEN_HEIGHT; ++y)
-  {
-    for (int x = 0; x < SCREEN_WIDTH; ++x)
+  tbb::parallel_for(tbb::blocked_range<int>(0, SCREEN_HEIGHT), [&](tbb::blocked_range<int> r) {
+    for (int y = r.begin(); y < r.end(); ++y)
     {
-      vec4 dir = vec4(x - (SCREEN_WIDTH / 2), y - (SCREEN_HEIGHT / 2), focal_length, 1);
-
-      dir = R * dir;
-
-      Intersection closest;
-      vec3 colour(0.0, 0.0, 0.0);
-      if (ClosestIntersection(cameraPos, dir, triangles, closest))
+      for (int x = 0; x < SCREEN_WIDTH; ++x)
       {
-        colour = (DirectLight(closest) + indirectLight) * triangles[closest.index].color;
+        vec4 dir = vec4(x - (SCREEN_WIDTH / 2), y - (SCREEN_HEIGHT / 2), focal_length, 1);
+        dir = R * dir;
+        Intersection closest;
+        vec3 colour(0.0, 0.0, 0.0);
+        if (ClosestIntersection(cameraPos, dir, triangles, closest))
+        {
+          colour = (DirectLight(closest) + indirectLight) * triangles[closest.index].color;
+        }
+        PutPixelSDL(screen, x, y, colour);
       }
-      PutPixelSDL(screen, x, y, colour);
     }
-  }
+  });
 }
 
 /*Place updates of parameters here*/
@@ -177,46 +189,59 @@ bool Update()
       {
       case SDLK_UP:
         cameraPos += R * zetward;
+        changed = true;
         break;
       case SDLK_DOWN:
         cameraPos -= R * zetward;
+        changed = true;
         break;
       case SDLK_LEFT:
         cameraPos -= R * xerward;
+        changed = true;
         break;
       case SDLK_RIGHT:
         cameraPos += R * xerward;
+        changed = true;
         break;
       case SDLK_w:
         theta_x -= 0.1f;
         LoadRotationMatrix();
+        changed = true;
         break;
       case SDLK_s:
         theta_x += 0.1f;
         LoadRotationMatrix();
+        changed = true;
         break;
       case SDLK_a:
         theta_y += 0.1f;
         LoadRotationMatrix();
+        changed = true;
         break;
       case SDLK_d:
         theta_y -= 0.1f;
         LoadRotationMatrix();
+        changed = true;
         break;
       case SDLK_KP_4:
         lightPos.x -= 0.1f;
+        changed = true;
         break;
       case SDLK_KP_6:
         lightPos.x += 0.1f;
+        changed = true;
         break;
       case SDLK_KP_8:
         lightPos.y -= 0.1f;
+        changed = true;
         break;
       case SDLK_KP_2:
         lightPos.y += 0.1f;
+        changed = true;
         break;
       case SDLK_KP_5:
         lightPos.z -= 0.1f;
+        changed = true;
         break;
       case SDLK_ESCAPE:
         /* Move camera quit */
@@ -227,40 +252,21 @@ bool Update()
   return true;
 }
 
-//CHANGES
-//STAGE 1 AUTO for triangles, shortened code, ternary at the end
-//STAGE 2 back to iterating for parallel_for
-
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest)
 {
-  auto t_size = triangles.size();
-  auto values = vector<vec4>(t_size);
-
-  // for (int i = 0; i < t_size; ++i)
-  // {
-  //   auto triangle = triangles[i];
-  //   vec3 b = vec3(start - triangle.v0);
-  //   mat3 A(-vec3(dir), triangle.e1, triangle.e2);
-  //   vec3 x = glm::inverse(A) * b;
-  //   values[i] = vec4(x.x, x.y, x.z, x.x / length(vec3(dir)));
-  // }
-  tbb::parallel_for(tbb::blocked_range<int>(0, t_size), [&](tbb::blocked_range<int> r) {
-    for (int i = r.begin(); i < r.end(); ++i)
-    {
-      auto triangle = triangles[i];
-      vec3 b = vec3(start - triangle.v0);
-      mat3 A(-vec3(dir), triangle.e1, triangle.e2);
-      vec3 x = glm::inverse(A) * b;
-      values[i] = vec4(x.x, x.y, x.z, x.x / length(vec3(dir)));
-    }
-  });
-
-  for (auto i = 0; i < t_size; ++i)
+  for (int i = 0; i < triangles.size(); ++i)
   {
-    float t = values[i].x, u = values[i].y, v = values[i].z;
-    float dist = values[i].w;
-    if (t >= 0.0f && u >= 0.0f && v >= 0.0f && u + v <= 1 && closest.distance > dist)
-      closest = Intersection(vec3(start + t * dir), dist, i);
+    auto triangle = triangles[i];
+    vec3 b = vec3(start - triangle.v0);
+    mat3 A(-vec3(dir), triangle.e1, triangle.e2);
+    vec3 x = glm::inverse(A) * b;
+    float dist = x.x / length(vec3(dir));
+    if (x.x >= 0.0f &&
+        x.y >= 0.0f &&
+        x.z >= 0.0f &&
+        x.y + x.z <= 1 &&
+        closest.distance > dist)
+      closest = Intersection(vec3(start + x.x * dir), dist, i);
   }
 
   return (closest.index == -1) ? false : true;
