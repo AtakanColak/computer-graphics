@@ -11,9 +11,20 @@ using glm::mat4;
 using glm::vec3;
 using glm::vec4;
 
-#define SCREEN_WIDTH 500
-#define SCREEN_HEIGHT 500
+#define SCREEN_WIDTH 1000
+#define SCREEN_HEIGHT 1000
 #define FULLSCREEN_MODE true
+
+
+//02 SPEED BEFORE EXTENSION
+//95.87% in Closest
+//03.25% in DirectLight
+//01.27% in Draw
+
+//02 SPEED BEFORE EXTENSION
+//95.09% in Closest
+//03.60% in DirectLight
+//01.70% in Draw
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
@@ -34,17 +45,38 @@ vector<Triangle> triangles;
 mat4 R;
 /* ----------------------------------------------------------------------------*/
 /* DEFINITIONS                                                                 */
-struct Intersection
+// struct Intersection
+// {
+//   vec4 position;
+//   float distance;
+//   int triangleIndex;
+// };
+
+class Intersection
 {
+public:
   vec4 position;
   float distance;
-  int triangleIndex;
+  int index;
+
+  Intersection() {
+    position = vec4(0, 0, 0, 1);
+    distance = std::numeric_limits<float>::max();
+    index = -1;
+  }
+
+  Intersection(vec4 p, float d, int i) {
+    position = p;
+    distance = d;
+    index = i;
+  }
 };
 
 /* ----------------------------------------------------------------------------*/
 /* FUNCTIONS                                                                   */
 
-bool Update();
+bool
+Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
 void LoadRotationMatrix();
@@ -108,7 +140,7 @@ void Draw(screen *screen)
       vec3 colour(0.0, 0.0, 0.0);
       if (ClosestIntersection(cameraPos, dir, triangles, closest))
       {
-        colour = (DirectLight(closest) + indirectLight) * triangles[closest.triangleIndex].color;
+        colour = (DirectLight(closest) + indirectLight) * triangles[closest.index].color;
       }
       PutPixelSDL(screen, x, y, colour);
     }
@@ -189,14 +221,11 @@ bool Update()
   return true;
 }
 
+//CHANGES
+//AUTO for triangles
+
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest)
 {
-  closest.position = vec4(0, 0, 0, 1);
-  closest.distance = std::numeric_limits<float>::max();
-  closest.triangleIndex = -1;
-
-  //dir = vec4(glm::normalize(vec3(dir)), 1.0f);
-
   for (unsigned int i = 0; i < triangles.size(); ++i)
   {
     Triangle t = triangles[i];
@@ -213,14 +242,11 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
 
     if (t_dist >= 0.0 && closest.distance > (t_dist / length(vec3(dir))) && u >= 0.0 && v >= 0.0 && u + v <= 1)
     {
-      closest.distance = t_dist / length(vec3(dir));
-      closest.position = start + t_dist * dir;
-      closest.position.w = 1;
-      closest.triangleIndex = i;
+      closest = Intersection(vec4(vec3(start + t_dist * dir), 1), t_dist / length(vec3(dir)), i);
     }
   }
 
-  if (closest.triangleIndex == -1)
+  if (closest.index == -1)
     return false;
 
   return true;
@@ -230,13 +256,13 @@ vec3 DirectLight(const Intersection &i)
 {
   Intersection closest;
   vec3 r_v = vec3(lightPos - i.position);
-  if (ClosestIntersection(i.position + 0.001f * triangles[i.triangleIndex].normal, vec4(r_v, 1), triangles, closest) && (length(closest.position - i.position) < length(lightPos - i.position)))
+  if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, closest) && (length(closest.position - i.position) < length(lightPos - i.position)))
   {
     return vec3(0, 0, 0);
   }
   float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
   r_v = glm::normalize(r_v);
-  vec3 n_u = glm::normalize(vec3(triangles[i.triangleIndex].normal));
+  vec3 n_u = glm::normalize(vec3(triangles[i.index].normal));
   return (lightColor / (4.0f * 3.14f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u)); //max(glm::dot(r_v, n_u), 0.0f);
 }
 
