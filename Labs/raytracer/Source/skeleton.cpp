@@ -4,6 +4,7 @@
 #include "SDLauxiliary.h"
 #include "TestModelH.h"
 #include <stdint.h>
+#include <tbb/tbb.h>
 
 using namespace std;
 using glm::mat3;
@@ -15,16 +16,20 @@ using glm::vec4;
 #define SCREEN_HEIGHT 1000
 #define FULLSCREEN_MODE true
 
-
 //02 SPEED BEFORE EXTENSION
 //95.87% in Closest
 //03.25% in DirectLight
 //01.27% in Draw
 
-//02 SPEED BEFORE EXTENSION
+//03 SPEED BEFORE EXTENSION
 //95.09% in Closest
 //03.60% in DirectLight
 //01.70% in Draw
+
+//03 SPEED STAGE 1
+//94.34% in Closest
+//03.41% in DirectLight
+//02.27% in Draw
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
@@ -59,14 +64,16 @@ public:
   float distance;
   int index;
 
-  Intersection() {
+  Intersection()
+  {
     position = vec4(0, 0, 0, 1);
     distance = std::numeric_limits<float>::max();
     index = -1;
   }
 
-  Intersection(vec4 p, float d, int i) {
-    position = p;
+  Intersection(vec3 p, float d, int i)
+  {
+    position = vec4(p, 1);
     distance = d;
     index = i;
   }
@@ -75,8 +82,7 @@ public:
 /* ----------------------------------------------------------------------------*/
 /* FUNCTIONS                                                                   */
 
-bool
-Update();
+bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
 void LoadRotationMatrix();
@@ -222,34 +228,42 @@ bool Update()
 }
 
 //CHANGES
-//AUTO for triangles
+//STAGE 1 AUTO for triangles, shortened code, ternary at the end
+//STAGE 2 back to iterating for parallel_for
 
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest)
 {
-  for (unsigned int i = 0; i < triangles.size(); ++i)
-  {
-    Triangle t = triangles[i];
-    vec4 v0 = t.v0;
+  auto t_size = triangles.size();
+  auto values = vector<vec4>(t_size);
 
-    vec3 b = vec3(start - v0);
-    mat3 A(-vec3(dir), t.e1, t.e2);
-
-    vec3 x = glm::inverse(A) * b;
-
-    float t_dist = x.x;
-    float u = x.y;
-    float v = x.z;
-
-    if (t_dist >= 0.0 && closest.distance > (t_dist / length(vec3(dir))) && u >= 0.0 && v >= 0.0 && u + v <= 1)
+  // for (int i = 0; i < t_size; ++i)
+  // {
+  //   auto triangle = triangles[i];
+  //   vec3 b = vec3(start - triangle.v0);
+  //   mat3 A(-vec3(dir), triangle.e1, triangle.e2);
+  //   vec3 x = glm::inverse(A) * b;
+  //   values[i] = vec4(x.x, x.y, x.z, x.x / length(vec3(dir)));
+  // }
+  tbb::parallel_for(tbb::blocked_range<int>(0, t_size), [&](tbb::blocked_range<int> r) {
+    for (int i = r.begin(); i < r.end(); ++i)
     {
-      closest = Intersection(vec4(vec3(start + t_dist * dir), 1), t_dist / length(vec3(dir)), i);
+      auto triangle = triangles[i];
+      vec3 b = vec3(start - triangle.v0);
+      mat3 A(-vec3(dir), triangle.e1, triangle.e2);
+      vec3 x = glm::inverse(A) * b;
+      values[i] = vec4(x.x, x.y, x.z, x.x / length(vec3(dir)));
     }
+  });
+
+  for (auto i = 0; i < t_size; ++i)
+  {
+    float t = values[i].x, u = values[i].y, v = values[i].z;
+    float dist = values[i].w;
+    if (t >= 0.0f && u >= 0.0f && v >= 0.0f && u + v <= 1 && closest.distance > dist)
+      closest = Intersection(vec3(start + t * dir), dist, i);
   }
 
-  if (closest.index == -1)
-    return false;
-
-  return true;
+  return (closest.index == -1) ? false : true;
 }
 
 vec3 DirectLight(const Intersection &i)
