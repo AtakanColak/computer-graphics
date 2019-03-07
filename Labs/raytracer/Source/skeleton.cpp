@@ -37,6 +37,9 @@ using glm::vec4;
 //STAGE 2 parallel_for
 //STAGE 2 TRIAL 1: PARALLELIZED Y ~ 210 milliseconds --SUCCESSFUL
 //STAGE 2 TRIAL 2: PARALLELIZED X ~ 220 milliseconds --UNSUCCESSFUL
+//STAGE 3 SHADOW RETURN TRUE IF HIT ~ 203 milliseconds
+//STAGE 4 REPLACED UNNECESSARY COMPUTATION WITH AUTO PREPARED ~190 milliseconds
+
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
@@ -89,8 +92,11 @@ public:
 bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
+bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im);
 void LoadRotationMatrix();
 vec3 DirectLight(const Intersection &i);
+float RightMost(const vector<Triangle> &triangles);
+float LeftMost(const vector<Triangle> &triangles);
 
 std::ostream &operator<<(std::ostream &os, vec4 const &v)
 {
@@ -143,6 +149,8 @@ int main(int argc, char *argv[])
 /*Place your drawing here*/
 void Draw(screen *screen)
 {
+  std::cout << "Rightmost U : " << RightMost(triangles) << std::endl;
+  std::cout << "Leftmost U : " << LeftMost(triangles) << std::endl;
   /* Clear buffer */
   memset(screen->buffer, 0, screen->height * screen->width * sizeof(uint32_t));
 
@@ -163,6 +171,126 @@ void Draw(screen *screen)
       }
     }
   });
+}
+// float u = focal_length * (stars[s].x / stars[s].z) + (SCREEN_WIDTH / 2);
+//     float v = focal_length * (stars[s].y / stars[s].z) + (SCREEN_HEIGHT / 2);
+
+float RightMost(const vector<Triangle> &triangles) {
+  float rightmost = 0.0f;
+  for (auto i = 0; i < triangles.size(); ++i) {
+    float u0 = focal_length * (triangles[i].v0.x / triangles[i].v0.z) + (SCREEN_WIDTH / 2);
+    if (u0 > rightmost) rightmost = u0; 
+    float u1 = focal_length * (triangles[i].v1.x / triangles[i].v1.z) + (SCREEN_WIDTH / 2); 
+    if (u1 > rightmost) rightmost = u1;
+    float u2 = focal_length * (triangles[i].v2.x / triangles[i].v2.z) + (SCREEN_WIDTH / 2); 
+    if (u2 > rightmost) rightmost = u2;
+  }  
+  return rightmost;
+
+//   u_coord = dot(u,[x0 y0 z0])
+// v_coord = dot(v,[x0 y0 z0])
+}
+
+float LeftMost(const vector<Triangle> &triangles) {
+  float leftmost = 0.0f;
+  for (auto i = 0; i < triangles.size(); ++i) {
+    float u0 = focal_length * (triangles[i].v0.x / triangles[i].v0.z) + (SCREEN_WIDTH / 2);
+    if (u0 < leftmost) leftmost = u0; 
+    float u1 = focal_length * (triangles[i].v1.x / triangles[i].v1.z) + (SCREEN_WIDTH / 2); 
+    if (u1 < leftmost) leftmost = u1;
+    float u2 = focal_length * (triangles[i].v2.x / triangles[i].v2.z) + (SCREEN_WIDTH / 2); 
+    if (u2 < leftmost) leftmost = u2;
+  }  
+  return leftmost;
+}
+
+
+bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest)
+{
+
+  auto lv3d = length(vec3(dir));
+  auto nv3d = -vec3(dir);
+  for (int i = 0; i < triangles.size(); ++i)
+  {
+    auto triangle = triangles[i];
+    vec3 b = vec3(start - triangle.v0);
+    mat3 A(nv3d, triangle.e1, triangle.e2);
+    vec3 x = glm::inverse(A) * b;
+    float dist = x.x / lv3d;
+    if (x.x >= 0.0f &&
+        x.y >= 0.0f &&
+        x.z >= 0.0f &&
+        x.y + x.z <= 1 &&
+        closest.distance > dist)
+      closest = Intersection(vec3(start + x.x * dir), dist, i);
+  }
+
+  return (closest.index == -1) ? false : true;
+}
+
+bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im)
+{
+
+  auto lsim = length(lightPos - im);
+  auto lv3d = length(vec3(dir));
+  auto nv3d = -vec3(dir);
+  for (int i = 0; i < triangles.size(); ++i)
+  {
+    auto triangle = triangles[i];
+    vec3 b = vec3(start - triangle.v0);
+    mat3 A(nv3d, triangle.e1, triangle.e2);
+    vec3 x = glm::inverse(A) * b;
+    float dist = x.x / lv3d;
+    if (x.x >= 0.0f &&
+        x.y >= 0.0f &&
+        x.z >= 0.0f &&
+        x.y + x.z <= 1 &&
+        closest.distance > dist) {
+      closest.distance = dist;
+      if ((length((start + x.x * dir) - im) < lsim))
+        return true;
+      }
+  }
+
+  return false;
+}
+
+vec3 DirectLight(const Intersection &i)
+{
+  Intersection closest;
+  vec3 r_v = vec3(lightPos - i.position);
+  if (ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, closest, i.position))
+  {
+    return black;
+  }
+  float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
+  r_v = glm::normalize(r_v);
+  vec3 n_u = glm::normalize(vec3(triangles[i.index].normal));
+  return (lightColor / (12.56f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u));
+}
+
+void LoadRotationMatrix()
+{
+  R[0][0] = cos(theta_y) * cos(theta_z);
+  R[0][1] = -1 * cos(theta_x) * sin(theta_z) + (sin(theta_x) * sin(theta_y) * cos(theta_z));
+  R[0][2] = sin(theta_x) * sin(theta_z) + cos(theta_x) * sin(theta_y) * cos(theta_z);
+
+  R[1][0] = cos(theta_y) * sin(theta_z);
+  R[1][1] = cos(theta_x) * cos(theta_z) + sin(theta_x) * sin(theta_y) * sin(theta_z);
+  R[1][2] = -1 * sin(theta_x) * cos(theta_z) + cos(theta_x) * sin(theta_y) * sin(theta_z);
+
+  R[2][0] = -1 * sin(theta_y);
+  R[2][1] = sin(theta_x) * cos(theta_y);
+  R[2][2] = cos(theta_x) * cos(theta_y);
+
+  R[3][0] = 0;
+  R[3][1] = 0;
+  R[3][2] = 0;
+
+  R[0][3] = 1;
+  R[1][3] = 1;
+  R[2][3] = 1;
+  R[3][3] = 1;
 }
 
 /*Place updates of parameters here*/
@@ -250,62 +378,4 @@ bool Update()
     }
   }
   return true;
-}
-
-bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest)
-{
-  for (int i = 0; i < triangles.size(); ++i)
-  {
-    auto triangle = triangles[i];
-    vec3 b = vec3(start - triangle.v0);
-    mat3 A(-vec3(dir), triangle.e1, triangle.e2);
-    vec3 x = glm::inverse(A) * b;
-    float dist = x.x / length(vec3(dir));
-    if (x.x >= 0.0f &&
-        x.y >= 0.0f &&
-        x.z >= 0.0f &&
-        x.y + x.z <= 1 &&
-        closest.distance > dist)
-      closest = Intersection(vec3(start + x.x * dir), dist, i);
-  }
-
-  return (closest.index == -1) ? false : true;
-}
-
-vec3 DirectLight(const Intersection &i)
-{
-  Intersection closest;
-  vec3 r_v = vec3(lightPos - i.position);
-  if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, closest) && (length(closest.position - i.position) < length(lightPos - i.position)))
-  {
-    return vec3(0, 0, 0);
-  }
-  float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
-  r_v = glm::normalize(r_v);
-  vec3 n_u = glm::normalize(vec3(triangles[i.index].normal));
-  return (lightColor / (4.0f * 3.14f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u)); //max(glm::dot(r_v, n_u), 0.0f);
-}
-
-void LoadRotationMatrix()
-{
-  R[0][0] = cos(theta_y) * cos(theta_z);
-  R[0][1] = -1 * cos(theta_x) * sin(theta_z) + (sin(theta_x) * sin(theta_y) * cos(theta_z));
-  R[0][2] = sin(theta_x) * sin(theta_z) + cos(theta_x) * sin(theta_y) * cos(theta_z);
-
-  R[1][0] = cos(theta_y) * sin(theta_z);
-  R[1][1] = cos(theta_x) * cos(theta_z) + sin(theta_x) * sin(theta_y) * sin(theta_z);
-  R[1][2] = -1 * sin(theta_x) * cos(theta_z) + cos(theta_x) * sin(theta_y) * sin(theta_z);
-
-  R[2][0] = -1 * sin(theta_y);
-  R[2][1] = sin(theta_x) * cos(theta_y);
-  R[2][2] = cos(theta_x) * cos(theta_y);
-
-  R[3][0] = 0;
-  R[3][1] = 0;
-  R[3][2] = 0;
-
-  R[0][3] = 1;
-  R[1][3] = 1;
-  R[2][3] = 1;
-  R[3][3] = 1;
 }
