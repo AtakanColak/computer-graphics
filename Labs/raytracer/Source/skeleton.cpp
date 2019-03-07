@@ -13,9 +13,11 @@ using glm::mat4;
 using glm::vec3;
 using glm::vec4;
 
-#define SCREEN_WIDTH 1000
-#define SCREEN_HEIGHT 1000
+#define SCREEN_WIDTH 1024
+#define SCREEN_HEIGHT 1024
 #define FULLSCREEN_MODE true
+#define STEP (4)
+#define LIGHT_COUNT 4
 
 //02 SPEED BEFORE EXTENSION
 //95.87% in Closest
@@ -39,7 +41,9 @@ using glm::vec4;
 //STAGE 2 TRIAL 2: PARALLELIZED X ~ 220 milliseconds --UNSUCCESSFUL
 //STAGE 3 SHADOW RETURN TRUE IF HIT ~ 203 milliseconds
 //STAGE 4 REPLACED UNNECESSARY COMPUTATION WITH AUTO PREPARED ~190 milliseconds
-
+//STAGE 5 HORIZONTAL INTERPOLATION ~ 80 milliseconds
+//STAGE 5 TRIAL 2 VERTICAL DOESNT STACK WITH PARALLELISM
+//STAGE 6 HORIZONTAL INTERPOLATION WITH Parallelism ~ 57 milliseconds
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
@@ -51,6 +55,7 @@ vec3 white(1, 1, 1);
 vec4 cameraPos(0, 0, -3, 1.0);
 
 vec4 lightPos(0, -0.5, -0.7, 1.0);
+vector<vec4> lights;
 vec3 lightColor = 14.f * white;
 vec3 indirectLight = 0.5f * white;
 
@@ -92,11 +97,15 @@ public:
 bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
-bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im);
+bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im, vec4 light_pos);
 void LoadRotationMatrix();
 vec3 DirectLight(const Intersection &i);
 float RightMost(const vector<Triangle> &triangles);
 float LeftMost(const vector<Triangle> &triangles);
+vector<vec3> InterpolateLine(uint32_t a, uint32_t b);
+void Interpolate(vec3 a, vec3 b, vector<vec3> &result);
+vec3 GetPixel(uint32_t pixel);
+void init_cameras();
 
 std::ostream &operator<<(std::ostream &os, vec4 const &v)
 {
@@ -149,15 +158,13 @@ int main(int argc, char *argv[])
 /*Place your drawing here*/
 void Draw(screen *screen)
 {
-  std::cout << "Rightmost U : " << RightMost(triangles) << std::endl;
-  std::cout << "Leftmost U : " << LeftMost(triangles) << std::endl;
-  /* Clear buffer */
+  init_cameras();
   memset(screen->buffer, 0, screen->height * screen->width * sizeof(uint32_t));
 
   tbb::parallel_for(tbb::blocked_range<int>(0, SCREEN_HEIGHT), [&](tbb::blocked_range<int> r) {
-    for (int y = r.begin(); y < r.end(); ++y)
+    for (int y = r.begin(); y < r.end(); y++)
     {
-      for (int x = 0; x < SCREEN_WIDTH; ++x)
+      for (int x = 0; x < SCREEN_WIDTH; x += STEP)
       {
         vec4 dir = vec4(x - (SCREEN_WIDTH / 2), y - (SCREEN_HEIGHT / 2), focal_length, 1);
         dir = R * dir;
@@ -170,44 +177,67 @@ void Draw(screen *screen)
         PutPixelSDL(screen, x, y, colour);
       }
     }
+    for (int y = r.begin(); y < r.end(); y++)
+    {
+      for (int x = 0; x < SCREEN_WIDTH; x += STEP)
+      {
+        uint32_t pixel_left = screen->buffer[y * SCREEN_WIDTH + x];
+        uint32_t pixel_right = pixel_left;
+        if (x + STEP < SCREEN_WIDTH)
+          pixel_right = screen->buffer[y * SCREEN_WIDTH + x + STEP];
+
+        vector<vec3> interpolated_pixels = InterpolateLine(pixel_left, pixel_right);
+        for (int z = 1; z < STEP; ++z)
+          PutPixelSDL(screen, x + z, y, interpolated_pixels[z]);
+      }
+    }
   });
-}
-// float u = focal_length * (stars[s].x / stars[s].z) + (SCREEN_WIDTH / 2);
-//     float v = focal_length * (stars[s].y / stars[s].z) + (SCREEN_HEIGHT / 2);
 
-float RightMost(const vector<Triangle> &triangles) {
-  float rightmost = 0.0f;
-  for (auto i = 0; i < triangles.size(); ++i) {
-    float u0 = focal_length * (triangles[i].v0.x / triangles[i].v0.z) + (SCREEN_WIDTH / 2);
-    if (u0 > rightmost) rightmost = u0; 
-    float u1 = focal_length * (triangles[i].v1.x / triangles[i].v1.z) + (SCREEN_WIDTH / 2); 
-    if (u1 > rightmost) rightmost = u1;
-    float u2 = focal_length * (triangles[i].v2.x / triangles[i].v2.z) + (SCREEN_WIDTH / 2); 
-    if (u2 > rightmost) rightmost = u2;
-  }  
-  return rightmost;
-
-//   u_coord = dot(u,[x0 y0 z0])
-// v_coord = dot(v,[x0 y0 z0])
+  // for (int i = 0; i < 25; ++i)
+  // Stencilize(screen);
 }
 
-float LeftMost(const vector<Triangle> &triangles) {
-  float leftmost = 0.0f;
-  for (auto i = 0; i < triangles.size(); ++i) {
-    float u0 = focal_length * (triangles[i].v0.x / triangles[i].v0.z) + (SCREEN_WIDTH / 2);
-    if (u0 < leftmost) leftmost = u0; 
-    float u1 = focal_length * (triangles[i].v1.x / triangles[i].v1.z) + (SCREEN_WIDTH / 2); 
-    if (u1 < leftmost) leftmost = u1;
-    float u2 = focal_length * (triangles[i].v2.x / triangles[i].v2.z) + (SCREEN_WIDTH / 2); 
-    if (u2 < leftmost) leftmost = u2;
-  }  
-  return leftmost;
+vector<vec3> InterpolateLine(uint32_t a, uint32_t b)
+{
+  vector<vec3> interpolated_pixels(STEP);
+  vec3 color_a = GetPixel(a);
+  vec3 color_b = GetPixel(b);
+  Interpolate(color_a, color_b, interpolated_pixels);
+  return interpolated_pixels;
 }
 
+vec3 GetPixel(uint32_t pixel)
+{
+  float r = ((float)((pixel >> 16) & 0xFF)) / 255.0f;
+  float g = ((float)((pixel >> 8) & 0xFF)) / 255.0f;
+  float b = ((float)((pixel)&0xFF)) / 255.0f;
+  return vec3(r, g, b);
+}
+
+void Interpolate(vec3 a, vec3 b, vector<vec3> &result)
+{
+  uint32_t len = result.size();
+
+  if (len == 1)
+  {
+    result[0] = a;
+    return;
+  }
+
+  float step_x = (b.x - a.x) / (len - 1);
+  float step_y = (b.y - a.y) / (len - 1);
+  float step_z = (b.z - a.z) / (len - 1);
+
+  for (int i = 0; i < len; ++i)
+  {
+    result[i].x = a.x + (step_x * i);
+    result[i].y = a.y + (step_y * i);
+    result[i].z = a.z + (step_z * i);
+  }
+}
 
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest)
 {
-
   auto lv3d = length(vec3(dir));
   auto nv3d = -vec3(dir);
   for (int i = 0; i < triangles.size(); ++i)
@@ -228,10 +258,10 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   return (closest.index == -1) ? false : true;
 }
 
-bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im)
+bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im, vec4 light_pos)
 {
 
-  auto lsim = length(lightPos - im);
+  auto lsim = length(light_pos - im);
   auto lv3d = length(vec3(dir));
   auto nv3d = -vec3(dir);
   for (int i = 0; i < triangles.size(); ++i)
@@ -245,28 +275,60 @@ bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles,
         x.y >= 0.0f &&
         x.z >= 0.0f &&
         x.y + x.z <= 1 &&
-        closest.distance > dist) {
+        closest.distance > dist)
+    {
       closest.distance = dist;
       if ((length((start + x.x * dir) - im) < lsim))
         return true;
-      }
+    }
   }
 
   return false;
 }
 
+// bool TriangleIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im, int t_index, )
+// {
+//   auto lsim = length(light_pos- im);
+//   auto lv3d = length(vec3(dir));
+//   auto nv3d = -vec3(dir);
+
+//   auto triangle = triangles[t_index];
+//   vec3 b = vec3(start - triangle.v0);
+//   mat3 A(nv3d, triangle.e1, triangle.e2);
+//   vec3 x = glm::inverse(A) * b;
+//   float dist = x.x / lv3d;
+//   if (x.x >= 0.0f &&
+//       x.y >= 0.0f &&
+//       x.z >= 0.0f &&
+//       x.y + x.z <= 1 )
+//   {
+//     return true;
+//   }
+//   return false;
+// }
+
 vec3 DirectLight(const Intersection &i)
 {
   Intersection closest;
   vec3 r_v = vec3(lightPos - i.position);
-  if (ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, closest, i.position))
+
+  float count = lights.size();
+  if (ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, closest, i.position, lightPos))
   {
-    return black;
+    count = 0;
+    for (int it = 0; it < lights.size(); it++)
+    {
+      Intersection c = closest;
+      if (!ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(vec3(lights[it] - i.position), 1), triangles, c, i.position, lights[it]))
+      {
+        count++;
+      }
+    }
   }
   float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
   r_v = glm::normalize(r_v);
   vec3 n_u = glm::normalize(vec3(triangles[i.index].normal));
-  return (lightColor / (12.56f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u));
+  return ((lightColor / (12.56f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u))) * (count / lights.size());
 }
 
 void LoadRotationMatrix()
@@ -379,3 +441,57 @@ bool Update()
   }
   return true;
 }
+
+void init_cameras()
+{
+  lights.clear();
+  for (int i = -LIGHT_COUNT / 2; i < LIGHT_COUNT / 2; i++)
+  {
+    for (int j = -LIGHT_COUNT / 2; j < LIGHT_COUNT / 2; j++)
+    {
+      lights.push_back(vec4(lightPos.x + 0.1f * i, lightPos.y, lightPos.z + 0.1f * j, 1));
+    }
+  }
+}
+
+// void Stencilize(screen *screen)
+// {
+//   uint32_t * new_buffer = (uint32_t *) malloc(sizeof(uint32_t) * SCREEN_WIDTH * SCREEN_HEIGHT);
+
+//   for(int x = 0; x < SCREEN_WIDTH; x++) {
+//     new_buffer[x] = screen->buffer[x];
+//     new_buffer[(SCREEN_HEIGHT - 1) * SCREEN_WIDTH + x] = screen->buffer[(SCREEN_HEIGHT - 1) * SCREEN_WIDTH + x];
+//   }
+
+//   for (int y = 0; y < SCREEN_HEIGHT; y++) {
+//     new_buffer[SCREEN_WIDTH * y] = screen->buffer[SCREEN_WIDTH * y];
+//     new_buffer[SCREEN_WIDTH * (y + 1) - 1] = screen->buffer[SCREEN_WIDTH * (y + 1) - 1];
+//   }
+
+//   for (int y = 1; y < SCREEN_HEIGHT - 1; y++)
+//   {
+//     for (int x = 1; x < SCREEN_WIDTH - 1; x++)
+//     {
+//       new_buffer[y * SCREEN_WIDTH + x] = WeightColor(screen->buffer[y * SCREEN_WIDTH + x], 0.2);
+//       new_buffer[y * SCREEN_WIDTH + x] += WeightColor(screen->buffer[y * SCREEN_WIDTH + x - 1], 0.1);
+//       new_buffer[y * SCREEN_WIDTH + x] += WeightColor(screen->buffer[y * SCREEN_WIDTH + x + 1], 0.1);
+//       new_buffer[y * SCREEN_WIDTH + x] += WeightColor(screen->buffer[(y - 1) * SCREEN_WIDTH + x], 0.1);
+//       new_buffer[y * SCREEN_WIDTH + x] += WeightColor(screen->buffer[(y - 1) * SCREEN_WIDTH + x - 1], 0.1);
+//       new_buffer[y * SCREEN_WIDTH + x] += WeightColor(screen->buffer[(y - 1) * SCREEN_WIDTH + x + 1], 0.1);
+//       new_buffer[y * SCREEN_WIDTH + x] += WeightColor(screen->buffer[(y + 1) * SCREEN_WIDTH + x], 0.1);
+//       new_buffer[y * SCREEN_WIDTH + x] += WeightColor(screen->buffer[(y + 1) * SCREEN_WIDTH + x - 1], 0.1);
+//       new_buffer[y * SCREEN_WIDTH + x] += WeightColor(screen->buffer[(y + 1) * SCREEN_WIDTH + x + 1], 0.1);
+//     }
+//   }
+//   memcpy(screen->buffer, new_buffer, sizeof(uint32_t) * SCREEN_WIDTH * SCREEN_HEIGHT);
+// }
+
+// uint32_t WeightColor(uint32_t color, float weight) {
+//   float red = weight * ((float)((color >> 16) & 0xFF) / 255.0f);
+//   float green = weight * ((float)((color >> 8) & 0xFF) / 255.0f);
+//   float blue = weight * ((float)((color) & 0xFF) / 255.0f);
+//   uint32_t r = uint32_t( glm::clamp( 255*red, 0.f, 255.f ) );
+//   uint32_t g = uint32_t( glm::clamp( 255*green, 0.f, 255.f ) );
+//   uint32_t b = uint32_t( glm::clamp( 255*blue, 0.f, 255.f ) );
+//   return (128<<24) + (r<<16) + (g<<8) + b;
+// }
