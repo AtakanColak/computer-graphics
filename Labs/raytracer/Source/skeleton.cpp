@@ -17,8 +17,8 @@ using glm::vec4;
 #define SCREEN_HEIGHT 1024
 #define FULLSCREEN_MODE false
 #define STEP 4
-#define LIGHT_COUNT 3
-#define AA 3
+#define LIGHT_COUNT 1
+#define AA 1
 
 //02 SPEED BEFORE EXTENSION
 //95.87% in Closest

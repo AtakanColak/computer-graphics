@@ -6,8 +6,10 @@
 #include <stdint.h>
 
 using namespace std;
+using glm::ivec2;
 using glm::mat3;
 using glm::mat4;
+using glm::vec2;
 using glm::vec3;
 using glm::vec4;
 
@@ -22,10 +24,10 @@ SDL_Event event;
 /* VARIABLES                                                                   */
 vec3 black(0, 0, 0);
 vec3 white(1, 1, 1);
-vec4 cameraPos(0,0,-3.001,1);
+vec4 cameraPos(0, 0, -3.001, 1);
 vector<Triangle> triangles;
 mat4 R;
-float theta_x = 0.1, theta_y = 0.1, theta_z = 0.1;
+float theta_x = 0, theta_y = 0, theta_z = 0;
 
 /* ----------------------------------------------------------------------------*/
 /* FUNCTIONS                                                                   */
@@ -34,6 +36,9 @@ bool Update();
 void Draw(screen *screen);
 void VertexShader(const vec4 &v, glm::ivec2 &p);
 void LoadRotationMatrix();
+void Interpolate(ivec2 a, ivec2 b, vector<ivec2> &result);
+void DrawLineSDL(screen *screen, ivec2 a, ivec2 b, vec3 color);
+void DrawPolygonEdges(screen *screen, const vector<vec4> &vertices);
 
 int main(int argc, char *argv[])
 {
@@ -66,15 +71,18 @@ void Draw(screen *screen)
     vertices[0] = triangles[i].v0;
     vertices[1] = triangles[i].v1;
     vertices[2] = triangles[i].v2;
-    for (int v = 0; v < 3; ++v)
-    {
-      glm::ivec2 projPos;
-      VertexShader(vertices[v], projPos);
-      // if(projPos.x < 0 || projPos.x >= SCREEN_WIDTH) continue;
-      // if(projPos.y < 0 || projPos.y >= SCREEN_HEIGHT) continue;
-      PutPixelSDL(screen, projPos.x, projPos.y, white);
-      std::cout << "(" << projPos.x << "," << projPos.y << ")" << std::endl;
-    }
+    DrawPolygonEdges(screen, vertices);
+    // for (int v = 0; v < 3; ++v)
+    // {
+    //   ivec2 projPos;
+    //   VertexShader(vertices[v], projPos);
+    //   if (projPos.x < 0 || projPos.x >= SCREEN_WIDTH)
+    //     continue;
+    //   if (projPos.y < 0 || projPos.y >= SCREEN_HEIGHT)
+    //     continue;
+    //   PutPixelSDL(screen, projPos.x, projPos.y, white);
+    //   std::cout << "(" << projPos.x << "," << projPos.y << ")" << std::endl;
+    // }
   }
 }
 /*Place updates of parameters here*/
@@ -118,11 +126,47 @@ bool Update()
   }
   return true;
 }
-void VertexShader(const vec4 &v, glm::ivec2 &p)
+
+void DrawPolygonEdges(screen *screen, const vector<vec4> &vertices)
+{
+  int V = vertices.size();
+  vector<ivec2> projectedVertices(V);
+  for (int i = 0; i < V; ++i)
+    VertexShader(vertices[i], projectedVertices[i]);
+  for (int i = 0; i < V; ++i)
+  {
+    int j = (i + 1) % V;
+    DrawLineSDL(screen, projectedVertices[i], projectedVertices[j], white);
+  }
+}
+
+void DrawLineSDL(screen *screen, ivec2 a, ivec2 b, vec3 color)
+{
+  ivec2 delta = glm::abs(a - b);
+  int pixels = glm::max(delta.x, delta.y) + 1;
+  vector<ivec2> line(pixels);
+  Interpolate(a, b, line);
+  for (int i = 0; i < pixels; ++i)
+    PutPixelSDL(screen, line[i].x, line[i].y, color);
+}
+
+void VertexShader(const vec4 &v, ivec2 &p)
 {
   vec4 _p = R * (v - cameraPos);
   p.x = (FOCAL_LENGTH * (_p.x / _p.z)) + (SCREEN_WIDTH / 2);
   p.y = (FOCAL_LENGTH * (_p.y / _p.z)) + (SCREEN_HEIGHT / 2);
+}
+
+void Interpolate(ivec2 a, ivec2 b, vector<ivec2> &result)
+{
+  int N = result.size();
+  vec2 step = vec2(b - a) / float(max(N - 1, 1));
+  vec2 current(a);
+  for (unsigned int i = 0; i < N; ++i)
+  {
+    result[i] = round(current);
+    current += step;
+  }
 }
 
 void LoadRotationMatrix()
