@@ -16,8 +16,9 @@ using glm::vec4;
 #define SCREEN_WIDTH 1024
 #define SCREEN_HEIGHT 1024
 #define FULLSCREEN_MODE true
-#define STEP (4)
-#define LIGHT_COUNT 4
+#define STEP 4
+#define LIGHT_COUNT 3
+#define AA 3
 
 //02 SPEED BEFORE EXTENSION
 //95.87% in Closest
@@ -44,6 +45,8 @@ using glm::vec4;
 //STAGE 5 HORIZONTAL INTERPOLATION ~ 80 milliseconds
 //STAGE 5 TRIAL 2 VERTICAL DOESNT STACK WITH PARALLELISM
 //STAGE 6 HORIZONTAL INTERPOLATION WITH Parallelism ~ 57 milliseconds
+//STAGE 7 SOFT SHADOWS ~730 milliseconds at LIGHTCOUNT = 3 (27 light sources)
+//STAGE 8 ANTI ALIZING ~6400 milliseconds at AA 3
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
@@ -54,8 +57,9 @@ vec3 black(0, 0, 0);
 vec3 white(1, 1, 1);
 vec4 cameraPos(0, 0, -3, 1.0);
 
-vec4 lightPos(0, -0.5, -0.7, 1.0);
-vector<vec4> lights;
+vec4 lightPos1(0, -0.5, -0.7, 1.0);
+//vec4 lightPos2(0.01, -0.5, -0.7, 1.0);
+vector<vec4> light_1;
 vec3 lightColor = 14.f * white;
 vec3 indirectLight = 0.5f * white;
 
@@ -97,7 +101,7 @@ public:
 bool Update();
 void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
-bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im, vec4 light_pos);
+bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, vec4 im, vec4 light_pos);
 void LoadRotationMatrix();
 vec3 DirectLight(const Intersection &i);
 float RightMost(const vector<Triangle> &triangles);
@@ -105,7 +109,7 @@ float LeftMost(const vector<Triangle> &triangles);
 vector<vec3> InterpolateLine(uint32_t a, uint32_t b);
 void Interpolate(vec3 a, vec3 b, vector<vec3> &result);
 vec3 GetPixel(uint32_t pixel);
-void init_cameras();
+void init_light_1();
 
 std::ostream &operator<<(std::ostream &os, vec4 const &v)
 {
@@ -134,7 +138,7 @@ int main(int argc, char *argv[])
 
   LoadTestModel(triangles);
   LoadRotationMatrix();
-
+  init_light_1();
   while (Update())
   {
     if (!changed)
@@ -158,7 +162,7 @@ int main(int argc, char *argv[])
 /*Place your drawing here*/
 void Draw(screen *screen)
 {
-  init_cameras();
+
   memset(screen->buffer, 0, screen->height * screen->width * sizeof(uint32_t));
 
   tbb::parallel_for(tbb::blocked_range<int>(0, SCREEN_HEIGHT), [&](tbb::blocked_range<int> r) {
@@ -166,14 +170,22 @@ void Draw(screen *screen)
     {
       for (int x = 0; x < SCREEN_WIDTH; x += STEP)
       {
-        vec4 dir = vec4(x - (SCREEN_WIDTH / 2), y - (SCREEN_HEIGHT / 2), focal_length, 1);
-        dir = R * dir;
-        Intersection closest;
         vec3 colour(0.0, 0.0, 0.0);
-        if (ClosestIntersection(cameraPos, dir, triangles, closest))
+        float count = 0;
+        for (float i = 0; i < AA; i += 1.0f)
         {
-          colour = (DirectLight(closest) + indirectLight) * triangles[closest.index].color;
+          for (float j = 0; j < AA; j += 1.0f)
+          {
+            vec4 dir = vec4((x - (SCREEN_WIDTH / 2)) + (i / AA), (y - (SCREEN_HEIGHT / 2)) + (j / AA), focal_length, 1);
+            dir = R * dir;
+            Intersection closest;
+            if (ClosestIntersection(cameraPos, dir, triangles, closest)) {
+              colour += (DirectLight(closest) + indirectLight) * triangles[closest.index].color;
+              count += 1.0f;
+            }
+          }
         }
+        if (colour != vec3(0,0,0)) colour /= count;
         PutPixelSDL(screen, x, y, colour);
       }
     }
@@ -258,9 +270,9 @@ bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles
   return (closest.index == -1) ? false : true;
 }
 
-bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest, vec4 im, vec4 light_pos)
+bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, vec4 im, vec4 light_pos)
 {
-
+  Intersection closest;
   auto lsim = length(light_pos - im);
   auto lv3d = length(vec3(dir));
   auto nv3d = -vec3(dir);
@@ -307,28 +319,26 @@ bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles,
 //   return false;
 // }
 
+vec3 point_light(vec3 color, vec3 r_v, vec3 n_u, float r, float count)
+{
+  return ((color / (12.56f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u))) * count;
+}
+
 vec3 DirectLight(const Intersection &i)
 {
-  Intersection closest;
-  vec3 r_v = vec3(lightPos - i.position);
-
-  float count = lights.size();
-  if (ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, closest, i.position, lightPos))
-  {
-    count = 0;
-    for (int it = 0; it < lights.size(); it++)
-    {
-      Intersection c = closest;
-      if (!ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(vec3(lights[it] - i.position), 1), triangles, c, i.position, lights[it]))
-      {
-        count++;
-      }
-    }
-  }
-  float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
-  r_v = glm::normalize(r_v);
+  vec3 direct_light = black;
   vec3 n_u = glm::normalize(vec3(triangles[i.index].normal));
-  return ((lightColor / (12.56f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u))) * (count / lights.size());
+  for (int l = 0; l < light_1.size(); ++l)
+  {
+    vec3 r_v = vec3(light_1[l] - i.position);
+    float count = 1.0f / light_1.size();
+    if (ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, i.position, light_1[l]))
+      count = 0.0f;
+    float r = sqrt(pow(r_v.x, 2.0) + pow(r_v.y, 2.0) + pow(r_v.z, 2.0));
+    r_v = glm::normalize(r_v);
+    direct_light += point_light(lightColor, r_v, n_u, r, count);
+  }
+  return direct_light;
 }
 
 void LoadRotationMatrix()
@@ -414,23 +424,28 @@ bool Update()
         changed = true;
         break;
       case SDLK_KP_4:
-        lightPos.x -= 0.1f;
+        for (int i = 0; i < light_1.size(); i++)
+          light_1[i].x -= 0.1f;
         changed = true;
         break;
       case SDLK_KP_6:
-        lightPos.x += 0.1f;
+        for (int i = 0; i < light_1.size(); i++)
+          light_1[i].x += 0.1f;
         changed = true;
         break;
       case SDLK_KP_8:
-        lightPos.y -= 0.1f;
+        for (int i = 0; i < light_1.size(); i++)
+          light_1[i].y -= 0.1f;
         changed = true;
         break;
       case SDLK_KP_2:
-        lightPos.y += 0.1f;
+        for (int i = 0; i < light_1.size(); i++)
+          light_1[i].y += 0.1f;
         changed = true;
         break;
       case SDLK_KP_5:
-        lightPos.z -= 0.1f;
+        for (int i = 0; i < light_1.size(); i++)
+          light_1[i].z -= 0.1f;
         changed = true;
         break;
       case SDLK_ESCAPE:
@@ -442,16 +457,19 @@ bool Update()
   return true;
 }
 
-void init_cameras()
+void init_light_1()
 {
-  lights.clear();
-  for (int i = -LIGHT_COUNT / 2; i < LIGHT_COUNT / 2; i++)
-  {
-    for (int j = -LIGHT_COUNT / 2; j < LIGHT_COUNT / 2; j++)
-    {
-      lights.push_back(vec4(lightPos.x + 0.1f * i, lightPos.y, lightPos.z + 0.1f * j, 1));
-    }
-  }
+  //vec4 lightPos1(0, -0.5, -0.7, 1.0);
+  light_1.clear();
+  // light_1.push_back(vec4(0, -0.5, -0.7, 1.0));
+  // light_1.push_back(vec4(0.01, -0.5, -0.7, 1.0));
+  //-0.5 + 0.5
+  // float w = 0.2f;
+  // float it = w / LIGHT_COUNT;
+  for (int i = 0; i < LIGHT_COUNT; i++)
+    for (int j = 0; j < LIGHT_COUNT; j++)
+      for (int z = 0; z < LIGHT_COUNT; z++)
+        light_1.push_back(vec4(0.5 + i * 0.02, -0.5 + z * 0.02, -0.70 + j * 0.02, 1.0));
 }
 
 // void Stencilize(screen *screen)
