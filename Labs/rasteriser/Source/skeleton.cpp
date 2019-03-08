@@ -39,6 +39,10 @@ void LoadRotationMatrix();
 void Interpolate(ivec2 a, ivec2 b, vector<ivec2> &result);
 void DrawLineSDL(screen *screen, ivec2 a, ivec2 b, vec3 color);
 void DrawPolygonEdges(screen *screen, const vector<vec4> &vertices);
+void ComputePolygonRows(const vector<ivec2> &vertexPixels, vector<ivec2> &leftPixels, vector<ivec2> &rightPixels);
+void TestPolyRows();
+void DrawPolygonRows(screen *screen, const vector<ivec2> &leftPixels, const vector<ivec2> &rightPixels, vec3 color);
+void DrawPolygon(screen * screen, const vector<vec4> &vertices, vec3 color);
 
 int main(int argc, char *argv[])
 {
@@ -71,18 +75,7 @@ void Draw(screen *screen)
     vertices[0] = triangles[i].v0;
     vertices[1] = triangles[i].v1;
     vertices[2] = triangles[i].v2;
-    DrawPolygonEdges(screen, vertices);
-    // for (int v = 0; v < 3; ++v)
-    // {
-    //   ivec2 projPos;
-    //   VertexShader(vertices[v], projPos);
-    //   if (projPos.x < 0 || projPos.x >= SCREEN_WIDTH)
-    //     continue;
-    //   if (projPos.y < 0 || projPos.y >= SCREEN_HEIGHT)
-    //     continue;
-    //   PutPixelSDL(screen, projPos.x, projPos.y, white);
-    //   std::cout << "(" << projPos.x << "," << projPos.y << ")" << std::endl;
-    // }
+    DrawPolygon(screen, vertices, triangles[i].color);
   }
 }
 /*Place updates of parameters here*/
@@ -125,6 +118,68 @@ bool Update()
     }
   }
   return true;
+}
+
+void DrawPolygon(screen * screen, const vector<vec4> &vertices, vec3 color)
+{
+  int V = vertices.size();
+  vector<ivec2> vertexPixels(V);
+  for (int i = 0; i < V; ++i)
+    VertexShader(vertices[i], vertexPixels[i]);
+  vector<ivec2> leftPixels;
+  vector<ivec2> rightPixels;
+  ComputePolygonRows(vertexPixels, leftPixels, rightPixels);
+  DrawPolygonRows(screen, leftPixels, rightPixels, color);
+}
+
+void DrawPolygonRows(screen *screen, const vector<ivec2> &leftPixels,
+                     const vector<ivec2> &rightPixels, vec3 color)
+{
+  for (int i = 0; i < leftPixels.size(); ++i)
+    DrawLineSDL(screen, leftPixels[i], rightPixels[i], color);
+}
+
+void ComputePolygonRows(const vector<ivec2> &vertexPixels, vector<ivec2> &leftPixels, vector<ivec2> &rightPixels)
+{
+  int vp_size = vertexPixels.size();
+  //STEP 1: MAX AND MIN Y VALUE
+  int max_y = INT_MIN, min_y = INT_MAX;
+  for (int i = 0; i < vp_size; ++i)
+  {
+    if (max_y < vertexPixels[i].y)
+      max_y = vertexPixels[i].y;
+    if (min_y > vertexPixels[i].y)
+      min_y = vertexPixels[i].y;
+  }
+  //STEP 2: RESIZE LEFT-RIGHT PIXELS
+  int num_rows = max_y - min_y + 1;
+  leftPixels.resize(num_rows);
+  rightPixels.resize(num_rows);
+  //STEP 3: x in left to really large, right to really small
+  for (int i = 0; i < num_rows; ++i)
+  {
+    leftPixels[i].x = INT_MAX;
+    rightPixels[i].x = INT_MIN;
+  }
+  //STEP 4: ITERATE AND UPDATE VALUES
+  for (int i = 0; i < vp_size; ++i)
+  {
+    int j = (i + 1) % vp_size;
+    ivec2 a = vertexPixels[i];
+    ivec2 b = vertexPixels[j];
+    ivec2 delta = glm::abs(a - b);
+    int pixels = glm::max(delta.x, delta.y) + 1;
+    vector<ivec2> line(pixels);
+    Interpolate(a, b, line);
+    for (int k = 0; k < pixels; ++k)
+    {
+      int c = line[k].y - min_y;
+      if (leftPixels[c].x > line[k].x)
+        leftPixels[c] = line[k];
+      if (rightPixels[c].x < line[k].x)
+        rightPixels[c] = line[k];
+    }
+  }
 }
 
 void DrawPolygonEdges(screen *screen, const vector<vec4> &vertices)
@@ -191,4 +246,24 @@ void LoadRotationMatrix()
   R[1][3] = 1;
   R[2][3] = 1;
   R[3][3] = 1;
+}
+
+void TestPolyRows()
+{
+  vector<ivec2> vertexPixels(3);
+  vertexPixels[0] = ivec2(10, 5);
+  vertexPixels[1] = ivec2(5, 10);
+  vertexPixels[2] = ivec2(15, 15);
+  vector<ivec2> leftPixels;
+  vector<ivec2> rightPixels;
+  ComputePolygonRows(vertexPixels, leftPixels, rightPixels);
+  for (int row = 0; row < leftPixels.size(); ++row)
+  {
+    cout << "Start: ("
+         << leftPixels[row].x << ","
+         << leftPixels[row].y << "). "
+         << "End: ("
+         << rightPixels[row].x << ","
+         << rightPixels[row].y << "). " << endl;
+  }
 }
