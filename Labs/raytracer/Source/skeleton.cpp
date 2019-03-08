@@ -15,7 +15,7 @@ using glm::vec4;
 
 #define SCREEN_WIDTH 1024
 #define SCREEN_HEIGHT 1024
-#define FULLSCREEN_MODE true
+#define FULLSCREEN_MODE false
 #define STEP 4
 #define LIGHT_COUNT 3
 #define AA 3
@@ -36,17 +36,18 @@ using glm::vec4;
 //02.27% in Draw
 
 //CHANGES
-//STAGE 1 AUTO for triangles, shortened code, ternary at the end ~ 805 milliseconds
+//TIMES FOR 1024 X 1024
+//STAGE 1 AUTO for triangles, shortened code, ternary at the end                ~  805 milliseconds
 //STAGE 2 parallel_for
-//STAGE 2 TRIAL 1: PARALLELIZED Y ~ 210 milliseconds --SUCCESSFUL
-//STAGE 2 TRIAL 2: PARALLELIZED X ~ 220 milliseconds --UNSUCCESSFUL
-//STAGE 3 SHADOW RETURN TRUE IF HIT ~ 203 milliseconds
-//STAGE 4 REPLACED UNNECESSARY COMPUTATION WITH AUTO PREPARED ~190 milliseconds
-//STAGE 5 HORIZONTAL INTERPOLATION ~ 80 milliseconds
+//STAGE 2 TRIAL 1: PARALLELIZED Y                                               ~  210 milliseconds 
+//STAGE 2 TRIAL 2: PARALLELIZED X                                               ~  220 milliseconds 
+//STAGE 3 SHADOW RETURN TRUE IF HIT                                             ~  203 milliseconds
+//STAGE 4 REPLACED UNNECESSARY COMPUTATION WITH AUTO PREPARED                   ~  190 milliseconds
+//STAGE 5 HORIZONTAL INTERPOLATION                                              ~   80 milliseconds
 //STAGE 5 TRIAL 2 VERTICAL DOESNT STACK WITH PARALLELISM
-//STAGE 6 HORIZONTAL INTERPOLATION WITH Parallelism ~ 57 milliseconds
-//STAGE 7 SOFT SHADOWS ~730 milliseconds at LIGHTCOUNT = 3 (27 light sources)
-//STAGE 8 ANTI ALIZING ~6400 milliseconds at AA 3
+//STAGE 6 HORIZONTAL INTERPOLATION WITH Parallelism                             ~   57 milliseconds
+//STAGE 7 SOFT SHADOWS LIGHTCOUNT = 3 (27 light sources)                        ~  730 milliseconds 
+//STAGE 8 ANTI ALIZING at AA 3                                                  ~ 6400 milliseconds 
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
