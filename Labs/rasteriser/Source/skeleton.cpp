@@ -1,6 +1,7 @@
 #include <iostream>
 #include <chrono>
 #include <glm/glm.hpp>
+#include <glm/ext.hpp>
 #include <SDL.h>
 #include "SDLauxiliary.h"
 #include "TestModelH.h"
@@ -16,24 +17,27 @@ using glm::vec4;
 
 SDL_Event event;
 
-#define SCREEN_WIDTH 320
-#define SCREEN_HEIGHT 256
-// #define FOCAL_LENGTH (SCREEN_HEIGHT)
-#define FULLSCREEN_MODE false
+#define SCREEN_WIDTH 1024
+#define SCREEN_HEIGHT 1024
 
 /* ----------------------------------------------------------------------------*/
 /* VARIABLES                                                                   */
-vec3 black(0, 0, 0);
-vec3 white(1, 1, 1);
-vec4 cameraPos(0, 0, -3.001, 1);
-vector<Triangle> triangles;
-mat4 R;
 float theta_x = 0, theta_y = 0, theta_z = 0;
 float depthBuffer[SCREEN_HEIGHT * SCREEN_WIDTH];
 int FOCAL_LENGTH = SCREEN_HEIGHT;
-
+mat4 R;
+vector<Triangle> triangles;
+vec3 black(0, 0, 0);
+vec3 white(1, 1, 1);
+vec4 cameraPos(0, 0, -3.001, 1);
+vec3 lightPos(0, -0.5, -0.7);
+vec3 lightPower = 14.1f * white;
+vec3 indirect_light = 0.5f * white;
 /* ----------------------------------------------------------------------------*/
-/* STRUCTS                                                                     */
+/* STRUCTS and DEFINITIONS                                                                    */
+
+#define FULLSCREEN_MODE false
+
 typedef std::chrono::high_resolution_clock Clock;
 
 struct Pixel
@@ -41,11 +45,14 @@ struct Pixel
   int x;
   int y;
   float zinv;
+  vec3 illimunation;
 };
 
 struct Vertex
 {
   vec4 position;
+  vec4 normal;
+  vec3 reflectance;
 };
 
 /* ----------------------------------------------------------------------------*/
@@ -105,6 +112,12 @@ void Draw(screen *screen)
   for (uint32_t i = 0; i < triangles.size(); ++i)
   {
     vector<Vertex> vertices(3);
+    for (uint32_t j = 0; j < vertices.size(); ++j)
+    {
+
+      vertices[j].reflectance = triangles[i].color;
+      vertices[j].normal = triangles[i].normal;
+    }
     vertices[0].position = triangles[i].v0;
     vertices[1].position = triangles[i].v1;
     vertices[2].position = triangles[i].v2;
@@ -204,6 +217,20 @@ void VertexShader(const Vertex &v, Pixel &p)
   p.zinv = 1 / _p.z;
   p.x = int(FOCAL_LENGTH * _p.x * p.zinv) + (SCREEN_WIDTH / 2);
   p.y = int(FOCAL_LENGTH * _p.y * p.zinv) + (SCREEN_HEIGHT / 2);
+
+  float r = glm::distance(lightPos, vec3(v.position));
+  vec3 direction = vec3(lightPos - vec3(v.position));
+  float rn = glm::dot(glm::normalize(direction), glm::normalize(vec3(v.normal))); 
+  vec3 direct_light = (lightPower * glm::max(rn, (float)0.0)) / (4 * M_PI * r * r);
+  p.illimunation = v.reflectance * (direct_light + indirect_light);
+  
+  std::cout << " r is " << r << std::endl;
+  std::cout << " lightPower is " << glm::to_string(lightPower) << std::endl;
+  std::cout << " direction is " << glm::to_string(direction) << std::endl;
+  std::cout << " v.normal is " << glm::to_string(v.normal) << std::endl;
+  std::cout << " direct_light is " << glm::to_string(direct_light) << std::endl;
+  std::cout << " reflectance  is " << glm::to_string(v.reflectance) << std::endl;
+  std::cout << " illimunation is " << glm::to_string(p.illimunation) << std::endl;
 }
 
 void PixelShader(screen *screen, const Pixel &p, vec3 currentColor)
@@ -214,7 +241,7 @@ void PixelShader(screen *screen, const Pixel &p, vec3 currentColor)
   if (p.zinv > depthBuffer[index])
   {
     depthBuffer[index] = p.zinv;
-    PutPixelSDL(screen, p.x, p.y, currentColor);
+    PutPixelSDL(screen, p.x, p.y, p.illimunation);
   }
 }
 
@@ -225,6 +252,8 @@ void Interpolate(Pixel a, Pixel b, vector<Pixel> &result)
   float step_x = (b.x - a.x) / div;
   float step_y = (b.y - a.y) / div;
   float step_z = (b.zinv - a.zinv) / div;
+  vec3 illu_step = (b.illimunation - a.illimunation) / div;
+  vec3 illu_current = a.illimunation;
   vec3 step(step_x, step_y, step_z);
   vec3 current(float(a.x), float(a.y), float(a.zinv));
   for (unsigned int i = 0; i < N; ++i)
@@ -232,6 +261,9 @@ void Interpolate(Pixel a, Pixel b, vector<Pixel> &result)
     result[i].x = round(current.x);
     result[i].y = round(current.y);
     result[i].zinv = current.z;
+    result[i].illimunation = illu_current;
+    // std::cout << " illimunation is " << glm::to_string(illu_current) << std::endl;
+    illu_current += illu_step;
     current += step;
   }
 }
