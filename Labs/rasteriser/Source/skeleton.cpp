@@ -45,14 +45,12 @@ struct Pixel
   int x;
   int y;
   float zinv;
-  vec3 illimunation;
+  vec4 pos3d;
 };
 
 struct Vertex
 {
   vec4 position;
-  vec4 normal;
-  vec3 reflectance;
 };
 
 /* ----------------------------------------------------------------------------*/
@@ -65,19 +63,17 @@ void Draw(screen *screen);
 
 void VertexShader(const Vertex &v, Pixel &p);
 
-void PixelShader(screen *screen, const Pixel &p, vec3 currentColor);
+void PixelShader(screen *screen, const Pixel &p, vec3 currentReflectance, vec4 currentNormal);
 
 void Interpolate(Pixel a, Pixel b, vector<Pixel> &result);
 
-void DrawPolygonEdges(screen *screen, const vector<Vertex> &vertices);
-
-void DrawLineSDL(screen *screen, Pixel a, Pixel b, vec3 color);
+void DrawLineSDL(screen *screen, Pixel a, Pixel b, vec3 color, vec4 normal);
 
 void ComputePolygonRows(const vector<Pixel> &vertexPixels, vector<Pixel> &leftPixels, vector<Pixel> &rightPixels);
 
-void DrawPolygonRows(screen *screen, const vector<Pixel> &leftPixels, const vector<Pixel> &rightPixels, vec3 color);
+void DrawPolygonRows(screen *screen, const vector<Pixel> &leftPixels, const vector<Pixel> &rightPixels, vec3 color, vec4 normal);
 
-void DrawPolygonPixel(screen *screen, const vector<Vertex> &vertices, vec3 color);
+void DrawPolygonPixel(screen *screen, const vector<Vertex> &vertices, vec3 color, vec4 normal);
 
 int main(int argc, char *argv[])
 {
@@ -112,20 +108,16 @@ void Draw(screen *screen)
   for (uint32_t i = 0; i < triangles.size(); ++i)
   {
     vector<Vertex> vertices(3);
-    for (uint32_t j = 0; j < vertices.size(); ++j)
-    {
-
-      vertices[j].reflectance = triangles[i].color;
-      vertices[j].normal = triangles[i].normal;
-    }
+    // vec3 currentReflectance = triangles[i].color;
+    // vec4 currentNormal = triangles[i].normal;
     vertices[0].position = triangles[i].v0;
     vertices[1].position = triangles[i].v1;
     vertices[2].position = triangles[i].v2;
-    DrawPolygonPixel(screen, vertices, triangles[i].color);
+    DrawPolygonPixel(screen, vertices, triangles[i].color, triangles[i].normal);
   }
 }
 
-void DrawPolygonPixel(screen *screen, const vector<Vertex> &vertices, vec3 color)
+void DrawPolygonPixel(screen *screen, const vector<Vertex> &vertices, vec3 color, vec4 normal)
 {
   int V = vertices.size();
   vector<Pixel> vertexPixels(V);
@@ -134,13 +126,13 @@ void DrawPolygonPixel(screen *screen, const vector<Vertex> &vertices, vec3 color
   vector<Pixel> leftPixels;
   vector<Pixel> rightPixels;
   ComputePolygonRows(vertexPixels, leftPixels, rightPixels);
-  DrawPolygonRows(screen, leftPixels, rightPixels, color);
+  DrawPolygonRows(screen, leftPixels, rightPixels, color, normal);
 }
 
-void DrawPolygonRows(screen *screen, const vector<Pixel> &leftPixels, const vector<Pixel> &rightPixels, vec3 color)
+void DrawPolygonRows(screen *screen, const vector<Pixel> &leftPixels, const vector<Pixel> &rightPixels, vec3 color, vec4 normal)
 {
   for (int i = 0; i < leftPixels.size(); ++i)
-    DrawLineSDL(screen, leftPixels[i], rightPixels[i], color);
+    DrawLineSDL(screen, leftPixels[i], rightPixels[i], color, normal);
 }
 
 void ComputePolygonRows(const vector<Pixel> &vertexPixels, vector<Pixel> &leftPixels, vector<Pixel> &rightPixels)
@@ -186,20 +178,7 @@ void ComputePolygonRows(const vector<Pixel> &vertexPixels, vector<Pixel> &leftPi
   }
 }
 
-void DrawPolygonEdges(screen *screen, const vector<Vertex> &vertices)
-{
-  int V = vertices.size();
-  vector<Pixel> projectedVertices(V);
-  for (int i = 0; i < V; ++i)
-    VertexShader(vertices[i], projectedVertices[i]);
-  for (int i = 0; i < V; ++i)
-  {
-    int j = (i + 1) % V;
-    DrawLineSDL(screen, projectedVertices[i], projectedVertices[j], white);
-  }
-}
-
-void DrawLineSDL(screen *screen, Pixel a, Pixel b, vec3 color)
+void DrawLineSDL(screen *screen, Pixel a, Pixel b, vec3 color, vec4 normal)
 {
   ivec2 delta = glm::abs(ivec2(a.x, a.y) - ivec2(b.x, b.y));
   int pixels = glm::max(delta.x, delta.y) + 1;
@@ -207,7 +186,7 @@ void DrawLineSDL(screen *screen, Pixel a, Pixel b, vec3 color)
   Interpolate(a, b, line);
   for (int i = 0; i < pixels; ++i)
   {
-    PixelShader(screen, line[i], color);
+    PixelShader(screen, line[i], color, normal);
   }
 }
 
@@ -217,23 +196,10 @@ void VertexShader(const Vertex &v, Pixel &p)
   p.zinv = 1 / _p.z;
   p.x = int(FOCAL_LENGTH * _p.x * p.zinv) + (SCREEN_WIDTH / 2);
   p.y = int(FOCAL_LENGTH * _p.y * p.zinv) + (SCREEN_HEIGHT / 2);
-
-  float r = glm::distance(lightPos, vec3(v.position));
-  vec3 direction = vec3(lightPos - vec3(v.position));
-  float rn = glm::dot(glm::normalize(direction), glm::normalize(vec3(v.normal))); 
-  vec3 direct_light = (lightPower * glm::max(rn, (float)0.0)) / (4 * M_PI * r * r);
-  p.illimunation = v.reflectance * (direct_light + indirect_light);
-  
-  std::cout << " r is " << r << std::endl;
-  std::cout << " lightPower is " << glm::to_string(lightPower) << std::endl;
-  std::cout << " direction is " << glm::to_string(direction) << std::endl;
-  std::cout << " v.normal is " << glm::to_string(v.normal) << std::endl;
-  std::cout << " direct_light is " << glm::to_string(direct_light) << std::endl;
-  std::cout << " reflectance  is " << glm::to_string(v.reflectance) << std::endl;
-  std::cout << " illimunation is " << glm::to_string(p.illimunation) << std::endl;
+  p.pos3d = v.position;
 }
 
-void PixelShader(screen *screen, const Pixel &p, vec3 currentColor)
+void PixelShader(screen *screen, const Pixel &p, vec3 currentReflectance, vec4 currentNormal)
 {
   int index = p.y * SCREEN_WIDTH + p.x;
   if (index > SCREEN_HEIGHT * SCREEN_WIDTH - 1 || index < 0)
@@ -241,7 +207,13 @@ void PixelShader(screen *screen, const Pixel &p, vec3 currentColor)
   if (p.zinv > depthBuffer[index])
   {
     depthBuffer[index] = p.zinv;
-    PutPixelSDL(screen, p.x, p.y, p.illimunation);
+    vec3 color = black;
+    float r = glm::distance(lightPos, vec3(p.pos3d));
+    vec3 direction = vec3(lightPos - vec3(p.pos3d));
+    float rn = glm::dot(glm::normalize(direction), glm::normalize(vec3(currentNormal)));
+    vec3 direct_light = (lightPower * glm::max(rn, (float)0.0)) / (4 * M_PI * r * r);
+    color = currentReflectance * (direct_light + indirect_light);
+    PutPixelSDL(screen, p.x, p.y, color);
   }
 }
 
@@ -252,8 +224,8 @@ void Interpolate(Pixel a, Pixel b, vector<Pixel> &result)
   float step_x = (b.x - a.x) / div;
   float step_y = (b.y - a.y) / div;
   float step_z = (b.zinv - a.zinv) / div;
-  vec3 illu_step = (b.illimunation - a.illimunation) / div;
-  vec3 illu_current = a.illimunation;
+  vec4 pos_current = a.pos3d * a.zinv;
+  vec4 pos_step = ((b.pos3d * b.zinv) - (a.pos3d * a.zinv) )/ div;
   vec3 step(step_x, step_y, step_z);
   vec3 current(float(a.x), float(a.y), float(a.zinv));
   for (unsigned int i = 0; i < N; ++i)
@@ -261,9 +233,8 @@ void Interpolate(Pixel a, Pixel b, vector<Pixel> &result)
     result[i].x = round(current.x);
     result[i].y = round(current.y);
     result[i].zinv = current.z;
-    result[i].illimunation = illu_current;
-    // std::cout << " illimunation is " << glm::to_string(illu_current) << std::endl;
-    illu_current += illu_step;
+    result[i].pos3d = pos_current /result[i].zinv;
+    pos_current += pos_step;
     current += step;
   }
 }
