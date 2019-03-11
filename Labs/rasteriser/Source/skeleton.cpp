@@ -2,6 +2,7 @@
 #include <chrono>
 #include <glm/glm.hpp>
 #include <glm/ext.hpp>
+#include <tbb/tbb.h>
 #include <SDL.h>
 #include "SDLauxiliary.h"
 #include "TestModelH.h"
@@ -33,6 +34,7 @@ vec4 cameraPos(0, 0, -3.001, 1);
 vec3 lightPos(0, -0.5, -0.7);
 vec3 lightPower = 14.1f * white;
 vec3 indirect_light = 0.5f * white;
+bool change = true;
 /* ----------------------------------------------------------------------------*/
 /* STRUCTS and DEFINITIONS                                                                    */
 
@@ -52,6 +54,12 @@ struct Vertex
 {
   vec4 position;
 };
+
+//1024 X 1024 OPTIMISATION
+//INITIAL ~430 ms
+//STAGE 1 O3 ~53 ms
+//STAGE 2 PARALLELISE COMPUTE ROWS - NOT SUCCESSFUL ~53 ms
+//STAGE 3 PARALLELISE DRAW LOSSLY SUCCESSFUL ~34 ms
 
 /* ----------------------------------------------------------------------------*/
 /* FUNCTIONS                                                                   */
@@ -84,6 +92,8 @@ int main(int argc, char *argv[])
 
   while (Update())
   {
+    if (!change)
+      continue;
     auto t1 = Clock::now();
     Draw(screen);
     auto t2 = Clock::now();
@@ -91,6 +101,7 @@ int main(int argc, char *argv[])
               << std::chrono::duration_cast<std::chrono::milliseconds>(t2 - t1).count()
               << " milliseconds" << std::endl;
     SDL_Renderframe(screen);
+    change = false;
   }
 
   SDL_SaveImage(screen, "screenshot.bmp");
@@ -102,19 +113,19 @@ int main(int argc, char *argv[])
 /*Place your drawing here*/
 void Draw(screen *screen)
 {
-  /* Clear buffer */
+  /* Clear buffers */
   memset(screen->buffer, 0, screen->height * screen->width * sizeof(uint32_t));
   memset(depthBuffer, 0, screen->height * screen->width * sizeof(float));
-  for (uint32_t i = 0; i < triangles.size(); ++i)
-  {
-    vector<Vertex> vertices(3);
-    // vec3 currentReflectance = triangles[i].color;
-    // vec4 currentNormal = triangles[i].normal;
-    vertices[0].position = triangles[i].v0;
-    vertices[1].position = triangles[i].v1;
-    vertices[2].position = triangles[i].v2;
-    DrawPolygonPixel(screen, vertices, triangles[i].color, triangles[i].normal);
-  }
+  tbb::parallel_for(tbb::blocked_range<int>(0, triangles.size()), [&](tbb::blocked_range<int> r) {
+    for (uint32_t i = r.begin(); i < r.end(); ++i)
+    {
+      vector<Vertex> vertices(3);
+      vertices[0].position = triangles[i].v0;
+      vertices[1].position = triangles[i].v1;
+      vertices[2].position = triangles[i].v2;
+      DrawPolygonPixel(screen, vertices, triangles[i].color, triangles[i].normal);
+    }
+  });
 }
 
 void DrawPolygonPixel(screen *screen, const vector<Vertex> &vertices, vec3 color, vec4 normal)
@@ -158,6 +169,8 @@ void ComputePolygonRows(const vector<Pixel> &vertexPixels, vector<Pixel> &leftPi
     rightPixels[i].x = INT_MIN;
   }
   //STEP 4: ITERATE AND UPDATE VALUES
+  //
+
   for (int i = 0; i < vp_size; ++i)
   {
     int j = (i + 1) % vp_size;
@@ -225,7 +238,7 @@ void Interpolate(Pixel a, Pixel b, vector<Pixel> &result)
   float step_y = (b.y - a.y) / div;
   float step_z = (b.zinv - a.zinv) / div;
   vec4 pos_current = a.pos3d * a.zinv;
-  vec4 pos_step = ((b.pos3d * b.zinv) - (a.pos3d * a.zinv) )/ div;
+  vec4 pos_step = ((b.pos3d * b.zinv) - (a.pos3d * a.zinv)) / div;
   vec3 step(step_x, step_y, step_z);
   vec3 current(float(a.x), float(a.y), float(a.zinv));
   for (unsigned int i = 0; i < N; ++i)
@@ -233,7 +246,7 @@ void Interpolate(Pixel a, Pixel b, vector<Pixel> &result)
     result[i].x = round(current.x);
     result[i].y = round(current.y);
     result[i].zinv = current.z;
-    result[i].pos3d = pos_current /result[i].zinv;
+    result[i].pos3d = pos_current / result[i].zinv;
     pos_current += pos_step;
     current += step;
   }
@@ -261,16 +274,28 @@ bool Update()
       switch (key_code)
       {
       case SDLK_UP:
-        FOCAL_LENGTH += 5;
+        cameraPos.z += 0.1f;
+        change = true;
         break;
       case SDLK_DOWN:
-        FOCAL_LENGTH -= 5;
+        cameraPos.z -= 0.1f;
+        change = true;
         break;
-      case SDLK_LEFT:
-        /* Move camera left */
+      case SDLK_w:
+        lightPos.z += 0.1f;
+        change = true;
         break;
-      case SDLK_RIGHT:
-        /* Move camera right */
+      case SDLK_s:
+        lightPos.z -= 0.1f;
+        change = true;
+        break;
+      case SDLK_a:
+        lightPos.x -= 0.1f;
+        change = true;
+        break;
+      case SDLK_d:
+        lightPos.x += 0.1f;
+        change = true;
         break;
       case SDLK_ESCAPE:
         /* Move camera quit */

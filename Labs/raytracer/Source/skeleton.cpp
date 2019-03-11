@@ -16,9 +16,11 @@ using glm::vec4;
 #define SCREEN_WIDTH 1024
 #define SCREEN_HEIGHT 1024
 #define FULLSCREEN_MODE false
-#define STEP 4
-#define LIGHT_COUNT 1
-#define AA 1
+#define STEP 1
+#define LIGHT_COUNT 3
+#define AA 3
+#define BOUNCE 3
+#define MTF90THETA (true)
 
 //02 SPEED BEFORE EXTENSION
 //95.87% in Closest
@@ -37,17 +39,18 @@ using glm::vec4;
 
 //CHANGES
 //TIMES FOR 1024 X 1024
-//STAGE 1 AUTO for triangles, shortened code, ternary at the end                ~  805 milliseconds
+//STAGE 1 AUTO for triangles, shortened code, ternary at the end                ~  800 milliseconds
 //STAGE 2 parallel_for
-//STAGE 2 TRIAL 1: PARALLELIZED Y                                               ~  210 milliseconds 
-//STAGE 2 TRIAL 2: PARALLELIZED X                                               ~  220 milliseconds 
-//STAGE 3 SHADOW RETURN TRUE IF HIT                                             ~  203 milliseconds
+//STAGE 2 TRIAL 1: PARALLELIZED Y                                               ~  210 milliseconds
+//STAGE 2 TRIAL 2: PARALLELIZED X                                               ~  220 milliseconds
+//STAGE 3 SHADOW RETURN TRUE IF HIT                                             ~  200 milliseconds
 //STAGE 4 REPLACED UNNECESSARY COMPUTATION WITH AUTO PREPARED                   ~  190 milliseconds
 //STAGE 5 HORIZONTAL INTERPOLATION                                              ~   80 milliseconds
 //STAGE 5 TRIAL 2 VERTICAL DOESNT STACK WITH PARALLELISM
-//STAGE 6 HORIZONTAL INTERPOLATION WITH Parallelism                             ~   57 milliseconds
-//STAGE 7 SOFT SHADOWS LIGHTCOUNT = 3 (27 light sources)                        ~  730 milliseconds 
-//STAGE 8 ANTI ALIZING at AA 3                                                  ~ 6400 milliseconds 
+//STAGE 6 HORIZONTAL INTERPOLATION WITH Parallelism                             ~   60 milliseconds
+//STAGE 7 SOFT SHADOWS LIGHTCOUNT = 3 (27 light sources)                        ~  730 milliseconds
+//STAGE 8 ANTI ALIZING at AA 3                                                  ~ 6400 milliseconds
+//STAGE 9 LIGHT BOUNCES W MTFTHETA90 PROTOCOL INTRODUCED                        ~69500 milliseconds (bounce light count aa is 3, step is 1)
 
 /* ----------------------------------------------------------------------------*/
 /* GLOBAL VARIABLES                                                            */
@@ -104,7 +107,7 @@ void Draw(screen *screen);
 bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
 bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, vec4 im, vec4 light_pos);
 void LoadRotationMatrix();
-vec3 DirectLight(const Intersection &i);
+vec3 DirectLight(const Intersection &i, int bounce, vec4 I);
 float RightMost(const vector<Triangle> &triangles);
 float LeftMost(const vector<Triangle> &triangles);
 vector<vec3> InterpolateLine(uint32_t a, uint32_t b);
@@ -180,13 +183,17 @@ void Draw(screen *screen)
             vec4 dir = vec4((x - (SCREEN_WIDTH / 2)) + (i / AA), (y - (SCREEN_HEIGHT / 2)) + (j / AA), focal_length, 1);
             dir = R * dir;
             Intersection closest;
-            if (ClosestIntersection(cameraPos, dir, triangles, closest)) {
-              colour += (DirectLight(closest) + indirectLight) * triangles[closest.index].color;
+            if (ClosestIntersection(cameraPos, dir, triangles, closest))
+            {
+              colour += (DirectLight(closest, BOUNCE, dir) + indirectLight);
+              if (!MTF90THETA)
+                colour *= triangles[closest.index].color;
               count += 1.0f;
             }
           }
         }
-        if (colour != vec3(0,0,0)) colour /= count;
+        if (colour != vec3(0, 0, 0))
+          colour /= count;
         PutPixelSDL(screen, x, y, colour);
       }
     }
@@ -325,7 +332,7 @@ vec3 point_light(vec3 color, vec3 r_v, vec3 n_u, float r, float count)
   return ((color / (12.56f * r * r)) * sqrt(glm::dot(r_v, n_u) * glm::dot(r_v, n_u))) * count;
 }
 
-vec3 DirectLight(const Intersection &i)
+vec3 DirectLight(const Intersection &i, int bounce, vec4 I)
 {
   vec3 direct_light = black;
   vec3 n_u = glm::normalize(vec3(triangles[i.index].normal));
@@ -339,6 +346,20 @@ vec3 DirectLight(const Intersection &i)
     r_v = glm::normalize(r_v);
     direct_light += point_light(lightColor, r_v, n_u, r, count);
   }
+  //BOUNCE
+  if (bounce > 0)
+  {
+    vec4 ref_dir = vec4(vec3(I) - 2 * (glm::dot(n_u, vec3(I))) * n_u, 1);
+    Intersection closest;
+    if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, ref_dir, triangles, closest))
+    {
+      vec3 reflected_light = (float(bounce) * float(bounce) / (BOUNCE * BOUNCE) ) * (DirectLight(closest, bounce - 1, ref_dir)) * triangles[closest.index].color;
+      direct_light += reflected_light;
+      if (MTF90THETA)
+        direct_light *= triangles[closest.index].color;
+    }
+  }
+
   return direct_light;
 }
 
@@ -470,7 +491,7 @@ void init_light_1()
   for (int i = 0; i < LIGHT_COUNT; i++)
     for (int j = 0; j < LIGHT_COUNT; j++)
       for (int z = 0; z < LIGHT_COUNT; z++)
-        light_1.push_back(vec4(0.5 + i * 0.02, -0.5 + z * 0.02, -0.70 + j * 0.02, 1.0));
+        light_1.push_back(vec4(0.5 + i * 0.05, -0.5 + z * 0.05, -0.70 + j * 0.05, 1.0));
 }
 
 // void Stencilize(screen *screen)
