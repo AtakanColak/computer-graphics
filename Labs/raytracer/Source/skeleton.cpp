@@ -2,6 +2,7 @@
 #include <iostream>
 #include <tbb/tbb.h>
 #include <chrono>
+#include <random>
 #include <glm/glm.hpp>
 #include <SDL.h>
 #include "SDLauxiliary.h"
@@ -17,10 +18,12 @@ using glm::vec4;
 #define SCREEN_HEIGHT 1024
 #define FULLSCREEN_MODE false
 #define STEP 1
-#define LIGHT_COUNT 3
-#define AA 3
-#define BOUNCE 3
-#define MTF90THETA (true)
+#define LIGHT_COUNT 1
+#define AA 1
+#define BOUNCE 2
+#define BOUNCE_POWER 2
+#define MTF90THETA (false)
+#define BRDF (true)
 
 //02 SPEED BEFORE EXTENSION
 //95.87% in Closest
@@ -349,14 +352,41 @@ vec3 DirectLight(const Intersection &i, int bounce, vec4 I)
   //BOUNCE
   if (bounce > 0)
   {
+    float Bp = pow(float(BOUNCE), float(BOUNCE_POWER));
+    float bp = pow(bounce, float(BOUNCE_POWER));
+
+    float weight = (bp / Bp);
+    if(BRDF) weight /= (BOUNCE * BOUNCE);
+
     vec4 ref_dir = vec4(vec3(I) - 2 * (glm::dot(n_u, vec3(I))) * n_u, 1);
     Intersection closest;
     if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, ref_dir, triangles, closest))
     {
-      vec3 reflected_light = (float(bounce) * float(bounce) / (BOUNCE * BOUNCE) ) * (DirectLight(closest, bounce - 1, ref_dir)) * triangles[closest.index].color;
+      vec3 reflected_light = weight * (DirectLight(closest, bounce - 1, ref_dir)) * triangles[closest.index].color;
       direct_light += reflected_light;
       if (MTF90THETA)
         direct_light *= triangles[closest.index].color;
+    }
+
+    if (BRDF)
+    {
+      for (int j = 0; j < BOUNCE * BOUNCE; ++j)
+      {
+        std::random_device r;
+        std::default_random_engine e(r());
+        std::uniform_real_distribution<float> uniform_dist(-0.1f, 0.1f);
+        float rand_x = uniform_dist(e);
+        float rand_y = uniform_dist(e);
+        float rand_z = uniform_dist(e);
+        vec4 rand_dev(rand_x, rand_y, rand_z, 0);
+        rand_dev += ref_dir;
+        Intersection closest_dev;
+        if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, rand_dev, triangles, closest_dev))
+        {
+          vec3 reflected_light = weight * (DirectLight(closest_dev, bounce - 1, rand_dev)) * triangles[closest_dev.index].color;
+          direct_light += reflected_light;
+        }
+      }
     }
   }
 
@@ -446,27 +476,27 @@ bool Update()
         changed = true;
         break;
       case SDLK_KP_4:
-        for (int i = 0; i < light_1.size(); i++)
+        for (unsigned int i = 0; i < light_1.size(); i++)
           light_1[i].x -= 0.1f;
         changed = true;
         break;
       case SDLK_KP_6:
-        for (int i = 0; i < light_1.size(); i++)
+        for (unsigned int i = 0; i < light_1.size(); i++)
           light_1[i].x += 0.1f;
         changed = true;
         break;
       case SDLK_KP_8:
-        for (int i = 0; i < light_1.size(); i++)
+        for (unsigned int i = 0; i < light_1.size(); i++)
           light_1[i].y -= 0.1f;
         changed = true;
         break;
       case SDLK_KP_2:
-        for (int i = 0; i < light_1.size(); i++)
+        for (unsigned int i = 0; i < light_1.size(); i++)
           light_1[i].y += 0.1f;
         changed = true;
         break;
       case SDLK_KP_5:
-        for (int i = 0; i < light_1.size(); i++)
+        for (unsigned int i = 0; i < light_1.size(); i++)
           light_1[i].z -= 0.1f;
         changed = true;
         break;
