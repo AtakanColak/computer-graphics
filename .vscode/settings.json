@@ -40,6 +40,7 @@
         "list": "cpp",
         "memory": "cpp",
         "ratio": "cpp",
-        "thread": "cpp"
+        "thread": "cpp",
+        "numeric": "cpp"
     }
 }
