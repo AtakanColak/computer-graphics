@@ -19,29 +19,14 @@ using glm::vec4;
 #define FULLSCREEN_MODE false
 #define STEP 1
 #define LIGHT_COUNT 1
-#define AA 1
-#define BOUNCE 5
+#define AA 3
+#define BOUNCE 0
 // #define BOUNCE_POWER 2
-#define MTF90THETA (true)
-#define BRDF (true)
+#define MTF90THETA (false)
+#define BRDF (false)
 #define BRDF_RANGE 5.01f
-#define DINIT 1.0f
+#define DINIT 0.9f
 #define DEATH 0.0f
-
-//02 SPEED BEFORE EXTENSION
-//95.87% in Closest
-//03.25% in DirectLight
-//01.27% in Draw
-
-//03 SPEED BEFORE EXTENSION
-//95.09% in Closest
-//03.60% in DirectLight
-//01.70% in Draw
-
-//03 SPEED STAGE 1
-//94.34% in Closest
-//03.41% in DirectLight
-//02.27% in Draw
 
 //CHANGES
 //TIMES FOR 1024 X 1024
@@ -67,22 +52,17 @@ using glm::vec4;
 bool changed = true;
 float focal_length = SCREEN_HEIGHT;
 float theta_x = 0.0, theta_y = 0.0, theta_z = 0.0;
-vec3 black(0, 0, 0);
-vec3 white(1, 1, 1);
+mat4 R;
+vec4 zetward(0, 0, 0.1, 1);
+vec4 xerward(0.1, 0, 0, 1);
 vec4 cameraPos(0, 0, -3, 1.0);
-
 vec4 lightPos1(0, -0.5, -0.7, 1.0);
-//vec4 lightPos2(0.01, -0.5, -0.7, 1.0);
 vector<vec4> light_1;
+vector<Triangle> triangles;
+vec3 black(0, 0, 0), white(1, 1, 1);
 vec3 lightColor = 14.f * white;
 vec3 indirectLight = 0.5f * white;
 
-vec4 zetward(0, 0, 0.1, 1);
-vec4 xerward(0.1, 0, 0, 1);
-
-vector<Triangle> triangles;
-
-mat4 R;
 /* ----------------------------------------------------------------------------*/
 /* DEFINITIONS                                                                 */
 
@@ -123,7 +103,7 @@ class Sphere
 	Sphere()
 	{
 		center = vec4(0, -0.3, 0, 1.0);
-		radius = 0.5f;
+		radius = 0.3f;
 		radius2 = radius * radius;
 		color = vec4(1, 0, 0, 0);
 	}
@@ -136,22 +116,19 @@ vector<Sphere> spheres;
 
 bool Update();
 void Draw(screen *screen);
-bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
-bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, vec4 im, vec4 light_pos);
+
 void LoadRotationMatrix();
-vec3 LightRay(Intersection &i, vec4 I, int b, float d);
 // vec3 DirectLight(const Intersection &i, int bounce, vec4 I);
-float RightMost(const vector<Triangle> &triangles);
-float LeftMost(const vector<Triangle> &triangles);
 vector<vec3> InterpolateLine(uint32_t a, uint32_t b);
 void Interpolate(vec3 a, vec3 b, vector<vec3> &result);
 vec3 GetPixel(uint32_t pixel);
 void init_light_1();
 vec4 IntersectionNormal(const Intersection &i);
 vec4 IntersectionColor(const Intersection &i);
-bool TriangleIntersection(vec3 start, vec3 dir, Intersection &in, bool shadow = false, vec4 light_pos = vec4(0, 0, 0, 0));
-bool SphereIntersection(vec3 start, vec3 dir, Intersection &in, bool shadow = false, vec4 light_pos = vec4(0, 0, 0, 0));
-bool GetIntersection(vec3 start, vec3 dir, Intersection &in, bool shadow = false, vec4 light_pos = vec4(0, 0, 0, 0));
+bool TriangleIntersection(vec3 start, vec3 dir, Intersection &in);
+bool SphereIntersection(vec3 start, vec3 dir, Intersection &in);
+bool GetIntersection(vec3 start, vec3 dir, Intersection &in);
+vec3 LightRay(Intersection &i, vec4 I, int b, float d);
 
 std::ostream &operator<<(std::ostream &os, vec4 const &v)
 {
@@ -223,12 +200,12 @@ void Draw(screen *screen)
 						vec4 dir = vec4((x - (SCREEN_WIDTH / 2)) + (i / AA), (y - (SCREEN_HEIGHT / 2)) + (j / AA), focal_length, 1);
 						dir = R * dir;
 						Intersection closest;
-						if (GetIntersection(vec3(cameraPos), vec3(dir), closest))
+						if (GetIntersection(vec3(cameraPos), glm::normalize(vec3(dir)), closest))
 						{
 							// std::cout << "Sphere hit" << std::endl;
 							colour += LightRay(closest, dir, BOUNCE, DINIT) + indirectLight; //(DirectLight(closest, BOUNCE, dir) + indirectLight);
-							if (!MTF90THETA)
-							  colour *= vec3(IntersectionColor(closest));
+							// if (!MTF90THETA)
+							colour *= vec3(IntersectionColor(closest));
 							count += 1.0f;
 						}
 						// if (TriangleIntersection(vec3(cameraPos), vec3(dir), closest))
@@ -323,19 +300,17 @@ bool solveQuadratic(const float &a, const float &b, const float &c, float &x0, f
 	return true;
 }
 
-bool TriangleIntersection(vec3 start, vec3 dir, Intersection &in, bool shadow, vec4 light_pos)
+bool TriangleIntersection(vec3 start, vec3 dir, Intersection &in)
 {
-	vec3 im = vec3(in.position);
-	auto lsim = length(light_pos - in.position);
-	auto lv3d = length(vec3(dir));
-	auto nv3d = -vec3(dir);
+	auto lv3d = length(dir);
+	auto nv3d = -dir;
 	for (int i = 0; i < triangles.size(); ++i)
 	{
 		auto triangle = triangles[i];
-		vec3 b = vec3(vec4(start, 1) - triangle.v0);
+		vec3 b = start - vec3(triangle.v0);
 		mat3 A(nv3d, triangle.e1, triangle.e2);
 		vec3 x = glm::inverse(A) * b;
-		float dist = x.x; // lv3d;
+		float dist = x.x;// / lv3d;
 
 		if (x.x >= 0.0f &&
 			x.y >= 0.0f &&
@@ -343,56 +318,55 @@ bool TriangleIntersection(vec3 start, vec3 dir, Intersection &in, bool shadow, v
 			x.y + x.z <= 1 &&
 			in.distance > dist)
 		{
-			in.distance = dist;
-			in.position = vec4((start + x.x * dir), 1);
-			if (shadow && length(vec3(in.position) - im) < lsim)
-				return true;
-			in.index = i;
+			in = Intersection(vec3(start + x.x * dir), dist, i);
 			in.sphere = false;
+			// std::cout << "triangle t" << x.x << std::endl;
 		}
 	}
+
 	return (in.index == -1) ? false : true;
 }
 
-bool SphereIntersection(vec3 start, vec3 dir, Intersection &in, bool shadow, vec4 light_pos)
+bool SphereIntersection(vec3 start, vec3 dir, Intersection &in)
 {
-	vec3 im = vec3(in.position);
-	auto lsim = length(light_pos - in.position);
 	for (int i = 0; i < spheres.size(); ++i)
 	{
 		auto sphere = spheres[i];
 		float t0, t1;
-		vec3 L = start - vec3(sphere.center);
-		vec3 ndir = glm::normalize(dir);
+		// vec3 ndir = glm::normalize(dir);
 
+#if 0
+		// geometric solution
+		vec3 L = vec3(sphere.center) - start;
+		float tca = glm::dot(L,dir);
+		// if (tca < 0) return false;
+		float d2 = glm::dot(L,L) - tca * tca;
+		if (d2 > sphere.radius2) return false;
+		float thc = sqrt(sphere.radius2 - d2);
+		t0 = tca - thc;
+		t1 = tca + thc;
+#else
+			// analytic solution
+			vec3 L = start - vec3(sphere.center);
 		float a = 1;
-		float b = 2 * glm::dot(ndir, L);
-		float c = glm::dot(L,L) - sphere.radius2;
-		if (!solveQuadratic(a, b, c, t0, t1)) continue; 
-
-		if (t0 > t1)
-			std::swap(t0, t1);
+		float b = 2 * glm::dot(dir, L);
+		float c = glm::dot(L, L) - sphere.radius2;
+		if (!solveQuadratic(a, b, c, t0, t1))
+			continue;
+#endif
+			if (t0 > t1)
+				std::swap(t0, t1);
 		if (t0 < 0)
-		{
 			t0 = t1;
-			if (t0 < 0)
-				continue;
-		}
-
-		// t0 = t0 < t1 ? t0 : t1;
 
 		// if (ndir.x * ndir.x + ndir.y * ndir.y >= 0.1f) continue;
 
-		vec3 phit = start + glm::normalize(dir) * t0;
-		t0 = t0 / length(dir);
-
-		if (in.distance > t0)
+		float dist = t0;// / length(dir);
+		if (t0 >= 0 && in.distance > dist)
 		{
-
-			in.distance = t0;
-			in.position = vec4(phit, 1);
-			if (shadow && length(vec3(in.position) - im) < lsim)
-			return true;
+			// std::cout << "sphere t" << t0 << std::endl;
+			in.distance = dist;
+			in.position = vec4(start + t0 * dir, 1);
 			in.index = i;
 			in.sphere = true;
 		}
@@ -402,116 +376,12 @@ bool SphereIntersection(vec3 start, vec3 dir, Intersection &in, bool shadow, vec
 	return (in.index == -1) ? false : true;
 }
 
-bool GetIntersection(vec3 start, vec3 dir, Intersection &in, bool shadow, vec4 light_pos) {
-	bool t = TriangleIntersection(start,dir,in,shadow,light_pos);
-	bool s = SphereIntersection(start,dir,in,shadow,light_pos);
-	return t || s;
+bool GetIntersection(vec3 start, vec3 dir, Intersection &in)
+{
+	bool t = TriangleIntersection(start, dir, in);
+	bool s = SphereIntersection(start,dir, in);
+	return s;
 }
-
-// bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest)
-// {
-// 	auto lv3d = length(vec3(dir));
-// 	auto nv3d = -vec3(dir);
-// 	for (int i = 0; i < triangles.size(); ++i)
-// 	{
-// 		auto triangle = triangles[i];
-// 		vec3 b = vec3(start - triangle.v0);
-// 		mat3 A(nv3d, triangle.e1, triangle.e2);
-// 		vec3 x = glm::inverse(A) * b;
-// 		float dist = x.x / lv3d;
-// 		if (x.x >= 0.0f &&
-// 			x.y >= 0.0f &&
-// 			x.z >= 0.0f &&
-// 			x.y + x.z <= 1 &&
-// 			closest.distance > dist)
-// 			closest = Intersection(vec3(start + x.x * dir), dist, i);
-// 		closest.sphere = false;
-// 	}
-
-// 	for (int i = 0; i < spheres.size(); ++i)
-// 	{
-// 		auto sphere = spheres[i];
-// 		float t0, t1;
-// 		vec3 L = vec3(start - sphere.center);
-// 		float a = glm::dot(vec3(dir), vec3(dir));
-// 		float b = glm::dot(vec3(dir), L);
-// 		float c = glm::dot(L, L) - sphere.radius2;
-// 		if (!solveQuadratic(a, b, c, t0, t1))
-// 			continue;
-// 		vec3 phit = vec3(start) + glm::normalize(vec3(dir)) * t0;
-// 		float dist = length(phit - vec3(start));
-// 		if (closest.distance > dist)
-// 		{
-// 			std::cout << "Sphere hit" << std::endl;
-// 			closest.position = vec4(phit, 1);
-// 			closest.distance = dist;
-// 			closest.index = i;
-// 			closest.sphere = true;
-// 		}
-// 		// vec3 nhit = glm::normalize(phit - vec3(sphere.center));
-// 	}
-
-// 	return (closest.index == -1) ? false : true;
-// }
-
-// bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, vec4 im, vec4 light_pos)
-// {
-// 	Intersection closest;
-// 	auto lsim = length(light_pos - im);
-// 	auto lv3d = length(vec3(dir));
-// 	auto nv3d = -vec3(dir);
-// 	closest.distance = 100.f;
-// 	for (int i = 0; i < triangles.size(); ++i)
-// 	{
-// 		auto triangle = triangles[i];
-// 		vec3 b = vec3(start - triangle.v0);
-// 		mat3 A(nv3d, triangle.e1, triangle.e2);
-// 		vec3 x = glm::inverse(A) * b;
-// 		float dist = x.x / lv3d;
-// 		if (x.x >= 0.0f &&
-// 			x.y >= 0.0f &&
-// 			x.z >= 0.0f &&
-// 			x.y + x.z <= 1 &&
-// 			closest.distance > dist)
-// 		{
-// 			closest.distance = dist;
-// 			closest.sphere = false;
-// 			if ((length((start + x.x * dir) - im) < lsim))
-// 				return true;
-// 		}
-// 	}
-// 	for (int i = 0; i < spheres.size(); ++i)
-// 	{
-// 		auto sphere = spheres[i];
-// 		float t0, t1;
-// 		vec3 L = vec3(start - sphere.center);
-// 		float tca = glm::dot(L, vec3(dir));
-// 		float d2 = glm::dot(L, L) - tca * tca;
-// 		if (d2 > sphere.radius2)
-// 			continue;
-// 		float thc = sqrt(sphere.radius2 - d2);
-// 		t0 = tca - thc;
-// 		t1 = tca + thc;
-// 		if (t0 > t1)
-// 			std::swap(t0, t1);
-// 		if (t0 < 0)
-// 		{
-// 			t0 = t1;
-// 			if (t0 < 0)
-// 				continue;
-// 		}
-// 		vec3 phit = vec3(start) + vec3(dir) * t0;
-// 		float dist = length(phit - vec3(start));
-// 		if (closest.distance > dist)
-// 		{
-// 			closest.distance = dist;
-// 			closest.sphere = true;
-// 			if (length(phit - vec3(im)) < lsim)
-// 				return true;
-// 		}
-// 	}
-// 	return false;
-// }
 
 vec3 point_light(vec3 color, vec3 r_v, vec3 n_u, float r)
 {
@@ -539,6 +409,42 @@ vec4 IntersectionNormal(const Intersection &i)
 		return vec4(glm::normalize(vec3(triangles[i.index].normal)), 1);
 }
 
+bool TriangleShadowIntersection(vec4 start, vec4 dir, vec4 im, vec4 light_pos)
+{
+	Intersection closest;
+	auto lsim = length(light_pos - im);
+	auto lv3d = length(vec3(dir));
+	auto nv3d = -vec3(dir);
+	closest.distance = std::numeric_limits<float>::max();
+	for (int i = 0; i < triangles.size(); ++i)
+	{
+		auto triangle = triangles[i];
+		vec3 b = vec3(start - triangle.v0);
+		mat3 A(nv3d, triangle.e1, triangle.e2);
+		vec3 x = glm::inverse(A) * b;
+		float dist = x.x / lv3d;
+		if (x.x >= 0.0f &&
+			x.y >= 0.0f &&
+			x.z >= 0.0f &&
+			x.y + x.z <= 1 &&
+			closest.distance > dist)
+		{
+			closest.distance = dist;
+			closest.sphere = false;
+			if ((length((start + x.x * dir) - im) < lsim))
+				return true;
+		}
+	}
+	return false;
+}
+
+// ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+// ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+// ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+// THE RECURSIVE LIGHT RAY FUNCTION
+// ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+// ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+// ||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
 //i is the intersection, I is ray direction, b is bounce count, d is death chance
 vec3 LightRay(Intersection &i, vec4 I, int b, float d)
 {
@@ -549,7 +455,10 @@ vec3 LightRay(Intersection &i, vec4 I, int b, float d)
 	vec3 color = black;
 	bool died = d < uniform_dist(e);
 	if (died)
+	{
+		// std::cout << "DIED" << std::endl;
 		return color;
+	}
 	//2. IF NOT DEAD, CALCULATE HOW MUCH LIGHT THE INTERSECTION GETS
 	vec3 N = vec3(IntersectionNormal(i));
 	vec4 start = i.position + 0.001f * vec4(N, 0);
@@ -557,13 +466,20 @@ vec3 LightRay(Intersection &i, vec4 I, int b, float d)
 
 	for (int l = 0; l < light_1.size(); ++l)
 	{
-		vec3 rHat = vec3(light_1[l] - i.position);
-		if (GetIntersection(vec3(start), rHat, i, true, light_1[l]))
+		vec3 rHat = vec3(light_1[l] - start);
+		if (TriangleShadowIntersection(start, vec4(rHat, 1), i.position, light_1[l]))
+		{
+			// std::cout << "i dist is " << i.distance << std::endl;
+			// std::cout << "cam dist is " << length( - start) << std::endl;
+			// if (i.distance < (length(vec3(light_1[l]) - vec3(start))) / length(rHat))
 			continue;
+		}
 		float r = sqrt(pow(rHat.x, 2.0f) + pow(rHat.y, 2.0f) + pow(rHat.z, 2.0f));
 		rHat = glm::normalize(rHat);
 		color += weight * point_light(lightColor, rHat, N, r);
 	}
+
+	return color;
 	if (b == 0)
 		return (color + color);
 	//3. MAIN BOUNCE
@@ -594,65 +510,6 @@ vec3 LightRay(Intersection &i, vec4 I, int b, float d)
 
 	return color;
 }
-
-// vec3 DirectLight(const Intersection &i, int bounce, vec4 I)
-// {
-//   vec3 direct_light = black;
-//   vec3 n_u = glm::normalize(vec3(triangles[i.index].normal));
-//   for (int l = 0; l < light_1.size(); ++l)
-//   {
-//     vec3 r_v = vec3(light_1[l] - i.position);
-//     float count = 1.0f / light_1.size();
-//     if (ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, i.position, light_1[l]))
-//       count = 0.0f;
-//     float r = sqrt(pow(r_v.x, 2.0f) + pow(r_v.y, 2.0f) + pow(r_v.z, 2.0f));
-//     r_v = glm::normalize(r_v);
-//     direct_light += point_light(lightColor, r_v, n_u, r, count);
-//   }
-//   //BOUNCE
-//   if (bounce > 0)
-//   {
-//     float Bp = pow(float(BOUNCE), float(BOUNCE_POWER));
-//     float bp = pow(bounce, float(BOUNCE_POWER));
-
-//     float weight = (bp / Bp);
-//     if (BRDF)
-//       weight /= (BOUNCE * BOUNCE);
-
-//     vec4 ref_dir = vec4(vec3(I) - 2 * (glm::dot(n_u, vec3(I))) * n_u, 1);
-//     Intersection closest;
-//     if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, ref_dir, triangles, closest))
-//     {
-//       vec3 reflected_light = weight * (DirectLight(closest, bounce - 1, ref_dir)) * triangles[closest.index].color;
-//       direct_light += reflected_light;
-//       if (MTF90THETA)
-//         direct_light *= triangles[closest.index].color;
-//     }
-
-//     if (BRDF)
-//     {
-//       for (int j = 0; j < BOUNCE * BOUNCE; ++j)
-//       {
-//         std::random_device r;
-//         std::default_random_engine e(r());
-//         std::uniform_real_distribution<float> uniform_dist(-0.1f, 0.1f);
-//         float rand_x = uniform_dist(e);
-//         float rand_y = uniform_dist(e);
-//         float rand_z = uniform_dist(e);
-//         vec4 rand_dev(rand_x, rand_y, rand_z, 0);
-//         rand_dev += ref_dir;
-//         Intersection closest_dev;
-//         if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, rand_dev, triangles, closest_dev))
-//         {
-//           vec3 reflected_light = weight * (DirectLight(closest_dev, bounce - 1, rand_dev)) * triangles[closest_dev.index].color;
-//           direct_light += reflected_light;
-//         }
-//       }
-//     }
-//   }
-
-//   return direct_light;
-// }
 
 void LoadRotationMatrix()
 {
@@ -784,3 +641,169 @@ void init_light_1()
 			for (int z = 0; z < LIGHT_COUNT; z++)
 				light_1.push_back(vec4(0.5 + i * 0.05, -0.5 + z * 0.05, -0.70 + j * 0.05, 1.0));
 }
+
+// bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest);
+// bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, vec4 im, vec4 light_pos);
+// bool ClosestIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, Intersection &closest)
+// {
+// 	auto lv3d = length(vec3(dir));
+// 	auto nv3d = -vec3(dir);
+// 	for (int i = 0; i < triangles.size(); ++i)
+// 	{
+// 		auto triangle = triangles[i];
+// 		vec3 b = vec3(start - triangle.v0);
+// 		mat3 A(nv3d, triangle.e1, triangle.e2);
+// 		vec3 x = glm::inverse(A) * b;
+// 		float dist = x.x / lv3d;
+// 		if (x.x >= 0.0f &&
+// 			x.y >= 0.0f &&
+// 			x.z >= 0.0f &&
+// 			x.y + x.z <= 1 &&
+// 			closest.distance > dist)
+// 			closest = Intersection(vec3(start + x.x * dir), dist, i);
+// 		closest.sphere = false;
+// 	}
+
+// 	for (int i = 0; i < spheres.size(); ++i)
+// 	{
+// 		auto sphere = spheres[i];
+// 		float t0, t1;
+// 		vec3 L = vec3(start - sphere.center);
+// 		float a = glm::dot(vec3(dir), vec3(dir));
+// 		float b = glm::dot(vec3(dir), L);
+// 		float c = glm::dot(L, L) - sphere.radius2;
+// 		if (!solveQuadratic(a, b, c, t0, t1))
+// 			continue;
+// 		vec3 phit = vec3(start) + glm::normalize(vec3(dir)) * t0;
+// 		float dist = length(phit - vec3(start));
+// 		if (closest.distance > dist)
+// 		{
+// 			std::cout << "Sphere hit" << std::endl;
+// 			closest.position = vec4(phit, 1);
+// 			closest.distance = dist;
+// 			closest.index = i;
+// 			closest.sphere = true;
+// 		}
+// 		// vec3 nhit = glm::normalize(phit - vec3(sphere.center));
+// 	}
+
+// 	return (closest.index == -1) ? false : true;
+// }
+
+// bool ShadowIntersection(vec4 start, vec4 dir, const vector<Triangle> &triangles, vec4 im, vec4 light_pos)
+// {
+// 	Intersection closest;
+// 	auto lsim = length(light_pos - im);
+// 	auto lv3d = length(vec3(dir));
+// 	auto nv3d = -vec3(dir);
+// 	closest.distance = 100.f;
+// 	for (int i = 0; i < triangles.size(); ++i)
+// 	{
+// 		auto triangle = triangles[i];
+// 		vec3 b = vec3(start - triangle.v0);
+// 		mat3 A(nv3d, triangle.e1, triangle.e2);
+// 		vec3 x = glm::inverse(A) * b;
+// 		float dist = x.x / lv3d;
+// 		if (x.x >= 0.0f &&
+// 			x.y >= 0.0f &&
+// 			x.z >= 0.0f &&
+// 			x.y + x.z <= 1 &&
+// 			closest.distance > dist)
+// 		{
+// 			closest.distance = dist;
+// 			closest.sphere = false;
+// 			if ((length((start + x.x * dir) - im) < lsim))
+// 				return true;
+// 		}
+// 	}
+// 	for (int i = 0; i < spheres.size(); ++i)
+// 	{
+// 		auto sphere = spheres[i];
+// 		float t0, t1;
+// 		vec3 L = vec3(start - sphere.center);
+// 		float tca = glm::dot(L, vec3(dir));
+// 		float d2 = glm::dot(L, L) - tca * tca;
+// 		if (d2 > sphere.radius2)
+// 			continue;
+// 		float thc = sqrt(sphere.radius2 - d2);
+// 		t0 = tca - thc;
+// 		t1 = tca + thc;
+// 		if (t0 > t1)
+// 			std::swap(t0, t1);
+// 		if (t0 < 0)
+// 		{
+// 			t0 = t1;
+// 			if (t0 < 0)
+// 				continue;
+// 		}
+// 		vec3 phit = vec3(start) + vec3(dir) * t0;
+// 		float dist = length(phit - vec3(start));
+// 		if (closest.distance > dist)
+// 		{
+// 			closest.distance = dist;
+// 			closest.sphere = true;
+// 			if (length(phit - vec3(im)) < lsim)
+// 				return true;
+// 		}
+// 	}
+// 	return false;
+// }
+
+// vec3 DirectLight(const Intersection &i, int bounce, vec4 I)
+// {
+//   vec3 direct_light = black;
+//   vec3 n_u = glm::normalize(vec3(triangles[i.index].normal));
+//   for (int l = 0; l < light_1.size(); ++l)
+//   {
+//     vec3 r_v = vec3(light_1[l] - i.position);
+//     float count = 1.0f / light_1.size();
+//     if (ShadowIntersection(i.position + 0.001f * triangles[i.index].normal, vec4(r_v, 1), triangles, i.position, light_1[l]))
+//       count = 0.0f;
+//     float r = sqrt(pow(r_v.x, 2.0f) + pow(r_v.y, 2.0f) + pow(r_v.z, 2.0f));
+//     r_v = glm::normalize(r_v);
+//     direct_light += point_light(lightColor, r_v, n_u, r, count);
+//   }
+//   //BOUNCE
+//   if (bounce > 0)
+//   {
+//     float Bp = pow(float(BOUNCE), float(BOUNCE_POWER));
+//     float bp = pow(bounce, float(BOUNCE_POWER));
+
+//     float weight = (bp / Bp);
+//     if (BRDF)
+//       weight /= (BOUNCE * BOUNCE);
+
+//     vec4 ref_dir = vec4(vec3(I) - 2 * (glm::dot(n_u, vec3(I))) * n_u, 1);
+//     Intersection closest;
+//     if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, ref_dir, triangles, closest))
+//     {
+//       vec3 reflected_light = weight * (DirectLight(closest, bounce - 1, ref_dir)) * triangles[closest.index].color;
+//       direct_light += reflected_light;
+//       if (MTF90THETA)
+//         direct_light *= triangles[closest.index].color;
+//     }
+
+//     if (BRDF)
+//     {
+//       for (int j = 0; j < BOUNCE * BOUNCE; ++j)
+//       {
+//         std::random_device r;
+//         std::default_random_engine e(r());
+//         std::uniform_real_distribution<float> uniform_dist(-0.1f, 0.1f);
+//         float rand_x = uniform_dist(e);
+//         float rand_y = uniform_dist(e);
+//         float rand_z = uniform_dist(e);
+//         vec4 rand_dev(rand_x, rand_y, rand_z, 0);
+//         rand_dev += ref_dir;
+//         Intersection closest_dev;
+//         if (ClosestIntersection(i.position + 0.001f * triangles[i.index].normal, rand_dev, triangles, closest_dev))
+//         {
+//           vec3 reflected_light = weight * (DirectLight(closest_dev, bounce - 1, rand_dev)) * triangles[closest_dev.index].color;
+//           direct_light += reflected_light;
+//         }
+//       }
+//     }
+//   }
+
+//   return direct_light;
+// }
