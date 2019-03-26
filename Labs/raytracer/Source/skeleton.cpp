@@ -381,7 +381,7 @@ bool GetIntersection(vec3 start, vec3 dir, Intersection &in)
 {
 	bool t = TriangleIntersection(start, glm::normalize(dir), in);
 	bool s = SphereIntersection(start, glm::normalize(dir), in);
-	return s;
+	return t || s;
 }
 
 vec3 point_light(vec3 color, vec3 r_v, vec3 n_u, float r)
@@ -453,7 +453,7 @@ bool TriangleShadowIntersection(vec4 start, vec4 dir, vec4 im, vec4 light_pos)
 	return false;
 }
 
-bool SphereShadowIntersection(vec4 start, vec4 dir, vec4 im, vec4 light_pos)
+bool SphereShadowIntersection(vec4 start, vec4 dir, vec4 im, vec4 light_pos, bool isSphere)
 {
 	Intersection closest;
 	auto lsim = length(light_pos - im);
@@ -485,8 +485,13 @@ bool SphereShadowIntersection(vec4 start, vec4 dir, vec4 im, vec4 light_pos)
 			// std::cout << "sphere t" << t0 << std::endl;
 			closest.distance = dist;
 			closest.sphere = true;
-			if ((length((start + t0 * dir) - im) < lsim))
+			isSphere = true;
+			// std::cout << length((start + t0 * dir) - im) << std::endl;
+			// std::cout << lsim << std::endl;
+			if (length((start + t0 * dir) - im) < lsim) {
+				// std::cout << "TRUE WORKS" << std::endl;
 				return true;
+				}
 		}
 		// vec3 nhit = glm::normalize(phit - vec3(sphere.center));
 	}
@@ -524,10 +529,12 @@ vec3 LightRay(Intersection &i, vec4 I, int b, float d)
 	{
 		vec3 rHat = vec3(light_1[l] - start);
 		// if (GetIntersection(vec3(start), rHat, buf))
-
-		if (!i.sphere && TriangleShadowIntersection(start, vec4(rHat, 1), i.position, light_1[l]) || i.sphere && SphereShadowIntersection(start, vec4(rHat, 1), i.position, light_1[l]))
+//!i.sphere && TriangleShadowIntersection(start, vec4(rHat, 1), i.position, light_1[l]) ||
+bool sphere = false;
+		if ( SphereShadowIntersection(start, vec4(rHat, 1), i.position, light_1[l], sphere))
 		{
 			// if (length(buf.position - i.position) < lsim)
+			if(sphere)
 			continue;
 			// std::cout << "i dist is " << i.distance << std::endl;
 			// std::cout << "cam dist is " << length( - start) << std::endl;

@@ -23,6 +23,7 @@ SDL_Event event;
 
 /* ----------------------------------------------------------------------------*/
 /* VARIABLES                                                                   */
+vec3 fxaa_screen_buffer[SCREEN_HEIGHT][SCREEN_WIDTH];
 float theta_x = 0, theta_y = 0, theta_z = 0;
 float depthBuffer[SCREEN_HEIGHT * SCREEN_WIDTH];
 int FOCAL_LENGTH = SCREEN_HEIGHT;
@@ -83,6 +84,107 @@ void DrawPolygonRows(screen *screen, const vector<Pixel> &leftPixels, const vect
 
 void DrawPolygonPixel(screen *screen, const vector<Vertex> &vertices, vec3 color, vec4 normal);
 
+float rgb2luma(vec3 rgb)
+{
+  return sqrt(glm::dot(rgb, vec3(0.299, 0.587, 0.114)));
+}
+
+void FlushFXAA()
+{
+  for (int i = 0; i < SCREEN_HEIGHT; ++i)
+  {
+    for (int j = 0; j < SCREEN_WIDTH; ++j)
+    {
+      fxaa_screen_buffer[i][j] = vec3(0, 0, 0);
+    }
+  }
+}
+
+void FXAA()
+{
+  for (int y = 1; y < SCREEN_HEIGHT - 1; ++y)
+  {
+    for (int x = 1; x < SCREEN_WIDTH - 1; ++x)
+    {
+      vec3 color_center = fxaa_screen_buffer[y][x];
+      float luma_center = rgb2luma(color_center);
+      float luma_down = rgb2luma(fxaa_screen_buffer[y + 1][x]);
+      float luma_up = rgb2luma(fxaa_screen_buffer[y - 1][x]);
+      float luma_left = rgb2luma(fxaa_screen_buffer[y][x + 1]);
+      float luma_right = rgb2luma(fxaa_screen_buffer[y][x - 1]);
+
+      float luma_min = glm::min(luma_center, glm::min(luma_down, luma_left, luma_right, luma_up));
+      float luma_max = glm::max(luma_center, glm::max(luma_down, luma_left, luma_right, luma_up));
+
+      float luma_range = luma_max - luma_min;
+
+      if (luma_range < glm::max(0.0312f, 0.125f * luma_max))
+        continue;
+
+      float luma_dl = rgb2luma(fxaa_screen_buffer[y + 1][x - 1]);
+      float luma_dr = rgb2luma(fxaa_screen_buffer[y + 1][x + 1]);
+      float luma_ul = rgb2luma(fxaa_screen_buffer[y - 1][x - 1]);
+      float luma_ur = rgb2luma(fxaa_screen_buffer[y - 1][x + 1]);
+
+      float luma_du = luma_down + luma_up;
+      float luma_lr = luma_left + luma_right;
+
+      float luma_left_corners = luma_dl + luma_ul;
+      float luma_down_corners = luma_dl + luma_dr;
+      float luma_up_corners = luma_ur + luma_ul;
+      float luma_right_corners = luma_ur + luma_dr; 
+
+      float edge_horizontal = glm::abs(-2.0f * luma_left + luma_left_corners) + glm::abs(-2.0f * luma_center + luma_du) * 2.0f + glm::abs(-2.0f * luma_right + luma_right_corners);
+      float edge_vertical = glm::abs(-2.0f * luma_up + luma_up_corners) + glm::abs(-2.0f * luma_center + luma_lr) * 2.0f + glm::abs(-2.0f * luma_down + luma_down_corners);
+
+      bool isHorizontal = (edge_horizontal >= edge_vertical);
+
+      float luma1 = isHorizontal ? luma_down : luma_left;
+      float luma2 = isHorizontal ? luma_up : luma_right;
+
+      float gradient1 = luma1 - luma_center;
+      float gradient2 = luma2 - luma_center;
+
+      bool is1Steepest = glm::abs(gradient1) >= glm::abs(gradient2);
+
+      float gradient_scaled = 0.25f * glm::max(glm::abs(gradient1),glm::abs(gradient2));
+
+      float step_length = isHorizontal ? (1 / SCREEN_HEIGHT) : (1 / SCREEN_WIDHT);
+
+      float luma_local_average = 0.0f;
+      if (is1Steepest) {
+        step_length = -step_length;
+        luma_local_average = 0.5f * (luma1 + luma_center);
+      }
+      else {
+        luma_local_average = 0.5f * (luma2 + luma_center);
+      }
+
+//WHAT IS UV SHIFT
+
+      ivec2 curren = ivec2(x, y);
+      ivec2 offset = isHorizontal ? ivec2(1, 0) : ivec2(0, 1);
+      ivec2 uv1 = curren - offset;
+      ivec2 uv2 = curren + offset;
+      float luma_end1 = rgb2luma(fxaa_screen_buffer[uv1.y][uv1.x]);
+      float luma_end2 = rgb2luma(fxaa_screen_buffer[uv2.y][uv2.x]);
+      luma_end1 -= luma_local_average;
+      luma_end2 -= luma_local_average;
+    }
+  }
+}
+
+void CarryToScreen(screen *screen)
+{
+  for (int y = 0; y < SCREEN_HEIGHT; ++y)
+  {
+    for (int x = 0; x < SCREEN_WIDTH; ++x)
+    {
+      PutPixelSDL(screen, x, y, fxaa_screen_buffer[y][x]);
+    }
+  }
+}
+
 int main(int argc, char *argv[])
 {
 
@@ -114,6 +216,7 @@ int main(int argc, char *argv[])
 void Draw(screen *screen)
 {
   /* Clear buffers */
+  FlushFXAA();
   memset(screen->buffer, 0, screen->height * screen->width * sizeof(uint32_t));
   memset(depthBuffer, 0, screen->height * screen->width * sizeof(float));
   tbb::parallel_for(tbb::blocked_range<int>(0, triangles.size()), [&](tbb::blocked_range<int> r) {
@@ -126,6 +229,7 @@ void Draw(screen *screen)
       DrawPolygonPixel(screen, vertices, triangles[i].color, triangles[i].normal);
     }
   });
+  CarryToScreen(screen);
 }
 
 void DrawPolygonPixel(screen *screen, const vector<Vertex> &vertices, vec3 color, vec4 normal)
@@ -215,7 +319,8 @@ void VertexShader(const Vertex &v, Pixel &p)
 void PixelShader(screen *screen, const Pixel &p, vec3 currentReflectance, vec4 currentNormal)
 {
   int index = p.y * SCREEN_WIDTH + p.x;
-  if (index > SCREEN_HEIGHT * SCREEN_WIDTH - 1 || index < 0)
+  //PX PY CHECK
+  if (p.y >= SCREEN_HEIGHT || p.x >= SCREEN_WIDTH || p.x < 0 || p.y < 0)
     return;
   if (p.zinv > depthBuffer[index])
   {
@@ -226,7 +331,8 @@ void PixelShader(screen *screen, const Pixel &p, vec3 currentReflectance, vec4 c
     float rn = glm::dot(glm::normalize(direction), glm::normalize(vec3(currentNormal)));
     vec3 direct_light = (lightPower * glm::max(rn, (float)0.0)) / (4 * M_PI * r * r);
     color = currentReflectance * (direct_light + indirect_light);
-    PutPixelSDL(screen, p.x, p.y, color);
+    // PutPixelSDL(screen, p.x, p.y, color);
+    fxaa_screen_buffer[p.y][p.x] = color;
   }
 }
 
