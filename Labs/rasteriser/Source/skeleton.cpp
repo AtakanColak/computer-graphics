@@ -23,6 +23,7 @@ SDL_Event event;
 
 /* ----------------------------------------------------------------------------*/
 /* VARIABLES                                                                   */
+float quality[] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.5f, 2.0f, 2.0f, 2.0f, 2.0f, 4.0f, 8.0f};
 vec3 fxaa_screen_buffer[SCREEN_HEIGHT][SCREEN_WIDTH];
 float theta_x = 0, theta_y = 0, theta_z = 0;
 float depthBuffer[SCREEN_HEIGHT * SCREEN_WIDTH];
@@ -132,7 +133,7 @@ void FXAA()
       float luma_left_corners = luma_dl + luma_ul;
       float luma_down_corners = luma_dl + luma_dr;
       float luma_up_corners = luma_ur + luma_ul;
-      float luma_right_corners = luma_ur + luma_dr; 
+      float luma_right_corners = luma_ur + luma_dr;
 
       float edge_horizontal = glm::abs(-2.0f * luma_left + luma_left_corners) + glm::abs(-2.0f * luma_center + luma_du) * 2.0f + glm::abs(-2.0f * luma_right + luma_right_corners);
       float edge_vertical = glm::abs(-2.0f * luma_up + luma_up_corners) + glm::abs(-2.0f * luma_center + luma_lr) * 2.0f + glm::abs(-2.0f * luma_down + luma_down_corners);
@@ -147,20 +148,22 @@ void FXAA()
 
       bool is1Steepest = glm::abs(gradient1) >= glm::abs(gradient2);
 
-      float gradient_scaled = 0.25f * glm::max(glm::abs(gradient1),glm::abs(gradient2));
+      float gradient_scaled = 0.25f * glm::max(glm::abs(gradient1), glm::abs(gradient2));
 
       float step_length = isHorizontal ? (1 / SCREEN_HEIGHT) : (1 / SCREEN_WIDHT);
 
       float luma_local_average = 0.0f;
-      if (is1Steepest) {
+      if (is1Steepest)
+      {
         step_length = -step_length;
         luma_local_average = 0.5f * (luma1 + luma_center);
       }
-      else {
+      else
+      {
         luma_local_average = 0.5f * (luma2 + luma_center);
       }
 
-//WHAT IS UV SHIFT
+      //WHAT IS UV SHIFT
 
       ivec2 curren = ivec2(x, y);
       ivec2 offset = isHorizontal ? ivec2(1, 0) : ivec2(0, 1);
@@ -170,6 +173,66 @@ void FXAA()
       float luma_end2 = rgb2luma(fxaa_screen_buffer[uv2.y][uv2.x]);
       luma_end1 -= luma_local_average;
       luma_end2 -= luma_local_average;
+      bool reached1 = glm::abs(luma_end1) >= gradient_scaled;
+      bool reached2 = glm::abs(luma_end2) >= gradient_scaled;
+      bool reached_both = reached1 && reached2;
+      if (!reached1)
+        uv1 -= offset;
+      if (!reached2)
+        uv2 -= offset;
+
+      if (!reached_both)
+      {
+        for (int i = 2; i < 12; ++i)
+        {
+          if (!reached1)
+          {
+            luma_end1 = rgb2luma(fxaa_screen_buffer[uv1.y][uv1.x]);
+            luma_end1 -= luma_local_average;
+          }
+          if (!reached2)
+          {
+            luma_end2 = rgb2luma(fxaa_screen_buffer[uv2.y][uv2.x]);
+            luma_end2 -= luma_local_average;
+          }
+          reached1 = glm::abs(luma_end1) >= gradient_scaled;
+          reached2 = glm::abs(luma_end2) >= gradient_scaled;
+          reached_both = reached1 && reached2;
+          if (!reached1)
+            uv1 -= offset * quality[i - 1];
+          if (!reached2)
+            uv2 -= offset * quality[i - 1];
+          if (reached_both)
+            break;
+        }
+      }
+
+      float distance1 = isHorizontal ? (curren.x - uv1.x) : (curren.y - uv1.y);
+      float distance2 = isHorizontal ? (uv2.x - curren.x) : (uv2.y - curren.y);
+
+      bool isDirection1 = distance1 < distance2;
+      float distance_final = glm::min(distance1, distance2);
+
+      float edge_thickness = (distance1 + distance2);
+      float pixel_offset = -distance_final / edge_thickness + 0.5;
+
+      bool isLumaCenterSmaller = luma_center < luma_local_average;
+      bool correctVariation = ((isDirection1 ? luma_end1 : luma_end2) < 0.0f) != isLumaCenterSmaller;
+      float final_offset = correctVariation ? pixel_offset : 0.0f;
+      float luma_average = (1.0f / 12.0f) * (2.0f * (luma_du + luma_lr) + luma_left_corners + luma_right_corners);
+      float subpixel_offset1 = glm::clamp(glm::abs(luma_average - luma_center) / luma_range, 0.0f, 1.0f);
+      float subpixel_offset2 = (-2.0f * subpixel_offset1 + 3.0) * subpixel_offset1 * subpixel_offset1;
+      float subpixel_offset_final = subpixel_offset2 * subpixel_offset2 * 0.75f;
+      final_offset = glm::max(final_offset, subpixel_offset_final);
+
+      vec2 final_uv = vec2(float(curren.x), float(curren.y));
+
+      if (isHorizontal)
+        final_uv.y += final_offset * step_length;
+      else
+        final_uv.x += final_offset * step_length;
+
+      fxaa_screen_buffer[curren.y][curren.x] = fxaa_screen_buffer[int(final_uv.y)][int(final_uv.x)];
     }
   }
 }
